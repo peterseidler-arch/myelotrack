@@ -1,6 +1,7 @@
 import { asyncHandler, badRequest } from '../lib/async-handler.js';
 
-const repo = (req) => req.app.locals.repo;
+// The patient-scoped repository, bound by requireAuth (see middleware/auth.js).
+const repo = (req) => req.repo;
 const VALID_STATUS = ['taken', 'skipped', 'missed', 'late'];
 
 /** GET /api/v1/medications */

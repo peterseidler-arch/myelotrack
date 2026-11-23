@@ -1,274 +1,211 @@
-# MyeloTrack — Database Schema (MongoDB)
+# MyeloTrack — Database Schema (PostgreSQL)
 
-MongoDB (Atlas) is the store. It's a natural fit here: the shapes are
-document-y (a symptom entry is a nested object, a lab result carries a
-free-form provenance block), the write patterns are append-heavy, and the read
-patterns are time-range scans per patient. Everything below is scoped to a
-single patient via `userId`; this is a personal app, so there is exactly one
-"real" user per deployment, but the field keeps the data model honest and makes
-a future multi-user version a non-rewrite.
+The production store is **Cloud SQL for PostgreSQL**, covered by Google Cloud's
+HIPAA business associate agreement. The schema is defined in
+[`server/src/repositories/postgres/migrations/`](../server/src/repositories/postgres/migrations/),
+which the server applies on start (in order, once each, under an advisory
+lock). This document explains it; the SQL is the source of truth.
 
-Conventions:
+The in-memory backend (`DATA_BACKEND=memory`, the local-dev default) implements
+the same repository interface with the same field names, seeded with sample
+data only. Both backends pass the same contract tests
+(`server/test/repository-contract.js`).
 
-- `_id`: Mongo ObjectId unless noted.
-- Timestamps are `Date` (BSON), stored UTC.
-- Every collection has `userId` (ObjectId, indexed) and `createdAt`/`updatedAt`.
-- Money-free, but clinically precise: numeric lab values keep their `unit`.
+## Multi-patient isolation
 
----
+MyeloTrack serves many patients from one database. Isolation is enforced in
+three layers:
 
-## `users`
+1. **The repository interface.** PHI is reachable only through
+   `repo.forUser(userId)`, which returns methods scoped to one patient. No
+   method reads PHI across patients. `requireAuth` binds `req.repo` to the
+   signed-in user, so controllers can't pick a different one.
+2. **Explicit filters.** Every query on a PHI table includes `user_id = $1`.
+3. **Row-level security in the database.** Every PHI table has
+   `FORCE ROW LEVEL SECURITY` with a `patient_isolation` policy:
+   `user_id = current_setting('app.user_id', true)`. Each patient-scoped call
+   runs in its own transaction that first sets `app.user_id` (transaction-local).
+   A query that forgot its `WHERE` clause still sees only that patient's rows,
+   and with no patient bound it sees nothing.
 
-One document per person. (Realistically one per deployment.)
+RLS is bypassed by superusers and roles with `BYPASSRLS`. The server checks its
+role on start and **refuses to start in production** if it could bypass RLS.
+Use a dedicated app role (`scripts/setup-gcp.sh` creates `myelotrack_app`).
 
-```js
-{
-  _id: ObjectId,
-  email: "patient@example.com",     // login / passkey identity
-  displayName: "…",
-  dob: ISODate("…"),
-  condition: {
-    primary: "myelofibrosis",        // free text + optional ICD-10
-    icd10: ["D47.4"],
-    notes: "MDS overlap"
-  },
-  careTeams: [                       // the institutions we aggregate across
-    { key: "msk",           name: "Memorial Sloan Kettering", mrn: "…" },
-    { key: "capital-health", name: "Capital Health",           mrn: "…" }
-  ],
-  createdAt: ISODate, updatedAt: ISODate
-}
-```
+## Conventions
 
-Index: `{ email: 1 }` unique.
-
----
-
-## `symptomEntries`
-
-One document per day — the MPN-SAF TSS check-in. Ten items, each 0–10; `total`
-(0–100) is denormalized on write for cheap trending.
-
-```js
-{
-  _id: ObjectId,
-  userId: ObjectId,
-  date: ISODate("2026-07-18"),      // date-only semantics (local midnight → UTC)
-  items: {
-    fatigue: 6,
-    earlySatiety: 4,
-    abdominalDiscomfort: 3,
-    inactivity: 5,
-    concentration: 4,
-    nightSweats: 7,
-    itching: 5,
-    bonePain: 6,
-    fever: 1,
-    weightLoss: 2
-  },
-  total: 43,                         // sum of items, 0–100
-  weightKg: 71.2,                    // optional daily weight
-  note: "rough night, sweats worse",
-  createdAt: ISODate, updatedAt: ISODate
-}
-```
-
-Indexes: `{ userId: 1, date: -1 }` unique (one entry per day; upsert replaces).
+- Ids are `text`. Users are `u_<uuid>`; other rows default to a UUID string.
+  The API exposes them as `_id`.
+- Timestamps are `timestamptz` (UTC). Every table has `created_at`; mutable
+  tables also have `updated_at`.
+- Nested, schema-light fields (symptom items, provenance, storage metadata,
+  schedules, encrypted tokens) are `jsonb`.
+- Numeric lab values keep their `unit` and reference range.
+- Foreign keys from PHI tables to `users` are `ON DELETE CASCADE`, so deleting
+  a user removes all their data in one statement.
 
 ---
 
-## `medications`
+## Account tables (no PHI)
 
-The regimen. Static-ish reference docs; dose events live in `doseLogs`.
+### `users`
 
-```js
-{
-  _id: ObjectId,
-  userId: ObjectId,
-  name: "Ruxolitinib",
-  brand: "Jakafi",
-  dose: "20 mg",
-  form: "tablet",
-  schedule: {
-    timesPerDay: 2,
-    times: ["08:00", "20:00"],       // local reminder times
-    daysOfWeek: [0,1,2,3,4,5,6]      // 0 = Sunday
-  },
-  purpose: "JAK1/2 inhibitor — spleen/symptom control",
-  prescriber: { careTeam: "msk", name: "Dr. …" },
-  active: true,
-  startedAt: ISODate, stoppedAt: null,
-  createdAt: ISODate, updatedAt: ISODate
-}
-```
+| column         | type        | notes                      |
+| -------------- | ----------- | -------------------------- |
+| `id`           | text PK     | `u_<uuid>`; never an email |
+| `display_name` | text        | optional                   |
+| `created_at`   | timestamptz |                            |
+| `updated_at`   | timestamptz |                            |
 
-Index: `{ userId: 1, active: 1 }`.
+Deliberately minimal: an account is a random id plus its passkeys. Clinical
+profile fields belong in a future PHI table, not here.
 
----
+### `passkey_credentials`
 
-## `doseLogs`
+One row per registered WebAuthn passkey. Sign-in uses discoverable
+credentials, so the server learns _who_ is signing in from the credential id.
 
-One document per scheduled dose occurrence. Adherence % is computed by
-aggregating these over a window (taken / (taken + skipped + missed)).
+| column       | type    | notes                        |
+| ------------ | ------- | ---------------------------- |
+| `id`         | text PK | credential id (base64url)    |
+| `user_id`    | text FK | → `users.id`, cascade        |
+| `public_key` | text    | COSE public key (base64url)  |
+| `counter`    | bigint  | signature counter            |
+| `transports` | jsonb   | e.g. `["internal","hybrid"]` |
 
-```js
-{
-  _id: ObjectId,
-  userId: ObjectId,
-  medicationId: ObjectId,
-  scheduledFor: ISODate("2026-07-18T08:00:00Z"),
-  status: "taken",                   // "taken" | "skipped" | "missed" | "late"
-  takenAt: ISODate("2026-07-18T08:12:00Z") || null,
-  note: "",
-  createdAt: ISODate, updatedAt: ISODate
-}
-```
+### `auth_challenges`
 
-Indexes: `{ userId: 1, scheduledFor: -1 }`, `{ userId: 1, medicationId: 1, scheduledFor: -1 }`.
+Single-use WebAuthn ceremony challenges, valid for 5 minutes. A registration
+challenge carries `user_id` when a signed-in user is adding another passkey;
+otherwise verifying it creates a new account.
+
+| column       | type        | notes                                   |
+| ------------ | ----------- | --------------------------------------- |
+| `challenge`  | text PK     |                                         |
+| `purpose`    | text        | `registration` \| `authentication`      |
+| `user_id`    | text FK     | nullable                                |
+| `expires_at` | timestamptz | expired rows are swept on each new save |
 
 ---
 
-## `labResults`
+## PHI tables (row-level security on all of them)
 
-The heart of the app: CBC-centric results **aggregated across care teams**.
-One document per analyte-per-draw. `source` + `provenance` guarantee we always
-know which institution a value came from, and a stable `externalId` makes
-re-syncs idempotent.
+### `symptom_entries`
 
-```js
-{
-  _id: ObjectId,
-  userId: ObjectId,
-  analyte: "hemoglobin",             // internal canonical key
-  loinc: "718-7",                    // source code, when known
-  value: 9.4,
-  unit: "g/dL",
-  refLow: 13.5, refHigh: 17.5,       // source-provided reference range
-  flag: "low",                       // "low" | "high" | "critical" | "normal" | null
-  collectedAt: ISODate("2026-07-15T13:20:00Z"),
-  reportedAt:  ISODate("2026-07-15T18:02:00Z"),
-  source: "msk",                     // "msk" | "capital-health" | "apple-health" | "manual"
-  provenance: {
-    system: "epic-fhir-r4",
-    resourceType: "Observation",
-    externalId: "Observation/abc123",// upstream FHIR id → dedup key
-    diagnosticReportId: "DiagnosticReport/xyz",
-    fetchedAt: ISODate
-  },
-  createdAt: ISODate, updatedAt: ISODate
-}
-```
+One row per patient per UTC day: the MPN-SAF TSS check-in. Ten items, each
+0–10; `total` (0–100) is denormalized on write for cheap trending. A second
+check-in on the same day replaces the first (`UNIQUE (user_id, day)`).
 
-Canonical `analyte` keys used by the CBC views: `hemoglobin`, `hematocrit`,
-`platelets`, `wbc`, `anc` (absolute neutrophils), `blasts` (peripheral, %),
-plus room to grow (`ldh`, `ferritin`, …).
+| column      | type        | notes                                |
+| ----------- | ----------- | ------------------------------------ |
+| `day`       | date        | UTC calendar day                     |
+| `date`      | timestamptz | when it was recorded                 |
+| `items`     | jsonb       | `{ fatigue: 6, earlySatiety: 4, … }` |
+| `total`     | integer     | 0–100                                |
+| `weight_kg` | numeric     | optional                             |
+| `note`      | text        |                                      |
+
+### `medications`
+
+The regimen. Rows from a FHIR sync carry `provenance` and an `external_id`
+(`provenance.externalId`), which is the dedup key for re-syncs:
+`UNIQUE (user_id, external_id) WHERE external_id IS NOT NULL`.
+
+Columns: `name`, `brand`, `dose`, `form`, `purpose`, `rxnorm`,
+`schedule` (jsonb, e.g. `{ "times": ["08:00","20:00"] }`), `prescriber`
+(jsonb), `active`, `source`, `provenance` (jsonb), `external_id`,
+`started_at`, `stopped_at`. Index `(user_id, active)`.
+
+### `dose_logs`
+
+One row per dose event. Adherence % is computed over a window:
+taken / (taken + skipped + missed).
+
+Columns: `medication_id` (FK, cascade), `scheduled_for`, `status`
+(`taken` \| `skipped` \| `missed` \| `late`), `taken_at`, `note`.
+Indexes `(user_id, scheduled_for DESC)` and
+`(user_id, medication_id, scheduled_for DESC)`.
+
+### `lab_results`
+
+The core of the app: CBC-centric results **aggregated across care teams**,
+one row per analyte per draw. `source` + `provenance` always say which
+institution a value came from.
+
+Columns: `analyte` (canonical key: `hemoglobin`, `hematocrit`, `platelets`,
+`wbc`, `anc`, `blasts`, …), `loinc`, `value`, `unit`, `ref_low`, `ref_high`,
+`flag` (`low` \| `high` \| `critical` \| `normal`), `collected_at`,
+`reported_at`, `source` (`msk` \| `capital-health` \| `apple-health` \|
+`manual`), `provenance` (jsonb: `system`, `resourceType`, `externalId`, …),
+`external_id`.
 
 Indexes:
 
-- `{ userId: 1, analyte: 1, collectedAt: -1 }` — trend queries.
-- `{ userId: 1, "provenance.externalId": 1 }` unique-sparse — idempotent upsert.
-- `{ userId: 1, source: 1, collectedAt: -1 }` — per-source filtering.
+- `(user_id, analyte, collected_at DESC)` for trends.
+- `(user_id, source, collected_at DESC)` for per-source filters.
+- `UNIQUE (user_id, external_id) WHERE external_id IS NOT NULL` for
+  idempotent sync. The same upstream id for two patients is two rows.
 
-> **Cross-team dedup note:** the same physical draw is _not_ expected to appear
-> from two institutions, but if a value is entered `manual` and later arrives
-> via FHIR, reconciliation prefers the FHIR-sourced record (richer provenance)
-> and marks the manual one superseded rather than deleting it.
+> **Cross-team dedup note:** the same physical draw is not expected from two
+> institutions. If a value is entered `manual` and later arrives via FHIR,
+> reconciliation should prefer the FHIR record and mark the manual one
+> superseded rather than delete it (not yet implemented).
 
----
+### `pallor_photos`
 
-## `pallorPhotos`
+Eye-photo (palpebral conjunctiva) readings, a rough at-home anemia proxy. The
+**image bytes never go in the database**: they are AES-256-GCM encrypted and
+written to Cloud Storage under `u/<userId>/…`; the row holds the key and digest.
 
-Eye-photo (palpebral conjunctiva) entries — a rough at-home anemia proxy
-between draws. The **image bytes never go in Mongo**; they live in an encrypted
-object store and the document holds a key + signed-URL metadata.
+Columns: `captured_at`, `eye` (`left` \| `right`), `pallor_score` (0–1,
+heuristic, never diagnostic), `storage` (jsonb: `bucket`, `key`, `sha256`,
+`contentType`, `bytes`), `linked_hemoglobin_id`, `note`.
 
-```js
-{
-  _id: ObjectId,
-  userId: ObjectId,
-  capturedAt: ISODate,
-  storage: {
-    bucket: "myelotrack-pallor",
-    key: "u/<userId>/2026/07/18/uuid.jpg",   // object-store key, not a public URL
-    sha256: "…",                              // integrity
-    contentType: "image/jpeg",
-    bytes: 184320
-  },
-  eye: "right",                      // "left" | "right"
-  // optional, computed later — never diagnostic:
-  pallorScore: 0.42,                 // 0–1 heuristic from mean redness of ROI
-  linkedHemoglobinId: ObjectId || null, // nearest-in-time lab, for context
-  note: "morning, natural light",
-  createdAt: ISODate, updatedAt: ISODate
-}
-```
+### `integration_connections`
 
-Index: `{ userId: 1, capturedAt: -1 }`.
+Per-patient, per-source SMART-on-FHIR connection state. Primary key
+`(user_id, source)`. OAuth tokens are **field-level encrypted** before they
+reach the database and are never returned to the client.
+
+Columns: `system`, `fhir_base_url`, `status` (`connected` \| `expired` \|
+`error` \| `disconnected`), `patient` (upstream FHIR Patient id), `scopes`
+(jsonb), `tokens` (jsonb, encrypted values), `pending_auth` (jsonb: PKCE
+verifier + state while connecting), `last_sync_at`, `last_sync_error`.
 
 ---
 
-## `integrationConnections`
+## `audit_log` (append-only)
 
-Per-source OAuth/connection state for the FHIR pulls. Tokens are **encrypted at
-the field level** and never returned to the client.
+One row per request to the PHI API: who, what, when, from where. A trigger
+rejects every `UPDATE`, `DELETE` and `TRUNCATE`, so entries can't be changed
+in place, even by the app's own role. `user_id` has no foreign key on purpose:
+the trail outlives a deleted account.
 
-```js
-{
-  _id: ObjectId,
-  userId: ObjectId,
-  source: "msk",                     // matches labResults.source
-  system: "epic-fhir-r4",
-  fhirBaseUrl: "https://…/api/FHIR/R4",
-  status: "connected",               // "connected" | "expired" | "error" | "disconnected"
-  scopes: ["patient/Observation.read", "patient/MedicationRequest.read", "…"],
-  tokens: {                          // 🔒 field-level encrypted
-    accessTokenEnc: "…",
-    refreshTokenEnc: "…",
-    expiresAt: ISODate
-  },
-  lastSyncAt: ISODate,
-  lastSyncError: null,
-  createdAt: ISODate, updatedAt: ISODate
-}
-```
+| column       | type        | notes                                      |
+| ------------ | ----------- | ------------------------------------------ |
+| `id`         | bigserial   |                                            |
+| `user_id`    | text        | null for public auth routes                |
+| `actor`      | text        | `user` \| `integration-worker` \| `system` |
+| `action`     | text        | `read` \| `create` \| `update` \| `delete` |
+| `route`      | text        | e.g. `GET /api/v1/labs`                    |
+| `status`     | integer     | HTTP status                                |
+| `ip`         | text        |                                            |
+| `user_agent` | text        |                                            |
+| `meta`       | jsonb       | anything else                              |
+| `at`         | timestamptz |                                            |
 
-Index: `{ userId: 1, source: 1 }` unique.
-
----
-
-## `auditLog`
-
-Append-only PHI access trail. Written on every read/write of a PHI-bearing
-collection. Never updated or deleted in place; retention handled by a TTL-free
-archival job, not by mutation.
-
-```js
-{
-  _id: ObjectId,
-  userId: ObjectId,
-  actor: "user" | "integration-worker" | "system",
-  action: "read" | "create" | "update" | "delete",
-  collection: "labResults",
-  documentId: ObjectId || null,
-  meta: { source: "msk", route: "GET /api/v1/labs", ip: "…", ua: "…" },
-  at: ISODate
-}
-```
-
-Index: `{ userId: 1, at: -1 }`, `{ collection: 1, at: -1 }`.
+Retention and export to long-term storage are a later ops task.
 
 ---
 
 ## Relationships at a glance
 
 ```
-users ─┬─< symptomEntries
-       ├─< medications ─< doseLogs
-       ├─< labResults >── (linkedHemoglobinId) ──< pallorPhotos
-       ├─< integrationConnections   (source ⇄ labResults.source)
-       └─< auditLog
+users ─┬─< passkey_credentials
+       ├─< auth_challenges
+       ├─< symptom_entries
+       ├─< medications ─< dose_logs
+       ├─< lab_results  >── (linked_hemoglobin_id) ──< pallor_photos
+       ├─< integration_connections   (source ⇄ lab_results.source)
+       └ ─ audit_log (user_id, no FK)
 ```
-
-The prototype models `symptomEntries`, `medications`/`doseLogs`, `labResults`,
-and `pallorPhotos` in memory with the same field names, so wiring a real
-backend is mostly "point fetch at these endpoints" rather than a reshape.

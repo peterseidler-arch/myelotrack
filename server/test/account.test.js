@@ -12,7 +12,7 @@ before(async () => {
   repo = createMemoryRepository();
   // A pallor photo backed by an object-storage blob, so we can assert erasure
   // purges the blob as well as the record.
-  repo.addPallorPhoto({
+  repo.forUser('user_1').addPallorPhoto({
     eye: 'right',
     pallorScore: 0.4,
     storage: { bucket: 'test', key: 'pallor/abc.enc' },

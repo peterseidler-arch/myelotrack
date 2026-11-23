@@ -39,21 +39,27 @@ export function clearSessionCookie(res) {
   res.clearCookie(COOKIE_NAME, { path: '/' });
 }
 
+/** Subject used for every request when AUTH_REQUIRED=false (local dev only). */
+export const DEV_USER_ID = 'user_1';
+
 /**
- * Gate PHI routes. When auth is disabled (default single-tenant), it's a no-op
- * that tags the request with the singleton user. When enabled, a valid session
- * is required or the request is rejected 401.
+ * Gate PHI routes and bind the request to one patient. When enabled, a valid
+ * session is required or the request is rejected 401. When auth is disabled
+ * (local dev on sample data), every request acts as the seeded dev user.
+ *
+ * Either way, `req.repo` is the repository scoped to `req.authUserId`, so a
+ * controller can only ever reach the signed-in patient's data.
  */
 export function requireAuth(req, res, next) {
-  if (!config.auth.required) {
-    req.authUserId = 'user_1';
-    return next();
-  }
-  const subject = verifySession(readSessionToken(req), config.auth.sessionSecret);
-  if (!subject) {
-    res.status(401).json({ error: 'unauthorized', message: 'Sign in required' });
-    return;
+  let subject = DEV_USER_ID;
+  if (config.auth.required) {
+    subject = verifySession(readSessionToken(req), config.auth.sessionSecret);
+    if (!subject) {
+      res.status(401).json({ error: 'unauthorized', message: 'Sign in required' });
+      return;
+    }
   }
   req.authUserId = subject;
+  req.repo = req.app.locals.repo.forUser(subject);
   next();
 }

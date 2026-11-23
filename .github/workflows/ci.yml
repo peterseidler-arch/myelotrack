@@ -13,16 +13,21 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
 
-    # MongoDB service so the Mongo repository integration test runs for real
-    # (it self-skips when MONGODB_TEST_URI is unset, e.g. local `npm test`).
+    # Postgres service so the Postgres repository tests run for real (they
+    # self-skip when DATABASE_TEST_URL is unset, e.g. a plain local `npm test`).
+    # The tests connect as a non-superuser role so row-level security applies.
     services:
-      mongo:
-        image: mongo:7
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: postgres
         ports:
-          - 27017:27017
+          - 5432:5432
         options: >-
-          --health-cmd "mongosh --quiet --eval 'db.runCommand({ ping: 1 })'"
-          --health-interval 10s
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
           --health-timeout 5s
           --health-retries 10
 
@@ -48,7 +53,14 @@ jobs:
       - name: Build web client
         run: npm run build
 
+      - name: Create the test database and app role
+        env:
+          PGPASSWORD: postgres
+        run: |
+          psql -h localhost -U postgres -c "CREATE ROLE myelotrack_app LOGIN PASSWORD 'test' NOSUPERUSER NOBYPASSRLS"
+          psql -h localhost -U postgres -c "CREATE DATABASE myelotrack_test OWNER myelotrack_app"
+
       - name: Server tests
         run: npm test
         env:
-          MONGODB_TEST_URI: mongodb://localhost:27017/myelotrack_test
+          DATABASE_TEST_URL: postgres://myelotrack_app:test@localhost:5432/myelotrack_test

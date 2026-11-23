@@ -1,7 +1,8 @@
 import { asyncHandler } from '../lib/async-handler.js';
 import { clearSessionCookie } from '../middleware/auth.js';
 
-const repo = (req) => req.app.locals.repo;
+// The patient-scoped repository, bound by requireAuth (see middleware/auth.js).
+const repo = (req) => req.repo;
 
 // Bump when the export shape changes, so downstream readers can adapt.
 const EXPORT_SCHEMA_VERSION = 1;

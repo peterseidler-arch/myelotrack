@@ -2,7 +2,8 @@ import { randomUUID } from 'node:crypto';
 import multer from 'multer';
 import { asyncHandler, badRequest } from '../lib/async-handler.js';
 
-const repo = (req) => req.app.locals.repo;
+// The patient-scoped repository, bound by requireAuth (see middleware/auth.js).
+const repo = (req) => req.repo;
 const storage = (req) => req.app.locals.storage;
 
 /** Multipart middleware: a single optional `image` field, held in memory. */
@@ -42,7 +43,7 @@ export const create = asyncHandler(async (req, res) => {
     if (!storage(req)) {
       throw badRequest('image storage is not configured (set FIELD_ENCRYPTION_KEY)');
     }
-    const objectKey = `u/${new Date().toISOString().slice(0, 10)}/${randomUUID()}`;
+    const objectKey = `u/${req.authUserId}/${new Date().toISOString().slice(0, 10)}/${randomUUID()}`;
     const stored = await storage(req).put(objectKey, req.file.buffer);
     storageBlock = { ...stored, contentType: req.file.mimetype };
   }

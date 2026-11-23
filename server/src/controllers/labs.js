@@ -1,6 +1,7 @@
 import { asyncHandler } from '../lib/async-handler.js';
 
-const repo = (req) => req.app.locals.repo;
+// The patient-scoped repository, bound by requireAuth (see middleware/auth.js).
+const repo = (req) => req.repo;
 
 /** GET /api/v1/labs?analyte=&source= — aggregated results across care teams. */
 export const list = asyncHandler(async (req, res) => {
