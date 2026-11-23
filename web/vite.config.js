@@ -41,6 +41,10 @@ export default defineConfig({
       },
       workbox: {
         globPatterns: ['**/*.{js,css,html,svg,png,woff2}'],
+        // pdf.js (≈360 KB) and its worker (≈1.4 MB .mjs, not matched above)
+        // load on first MyChart import instead of being precached, so
+        // installing the app stays light.
+        globIgnores: ['**/pdf-*.js'],
         // API reads: serve from network, fall back to the last cached response
         // when offline so labs/meds/pallor still render.
         runtimeCaching: [

@@ -31,7 +31,7 @@ npm run dev:web
 npm run dev:server
 
 npm run build          # production build of the web client → web/dist
-npm test               # server tests (node:test)
+npm test               # server + web tests (node:test)
 npm run lint           # ESLint across both workspaces
 npm run format         # Prettier
 ```
@@ -79,8 +79,12 @@ is a data-source swap, not a rewrite. Full detail in
 - **Today** — MPN-SAF TSS daily check-in (10 validated items → 0–100 score
   dial), weight, and today's due meds.
 - **Meds** — per-dose logging (taken/skipped) and rolling adherence.
-- **Labs** — CBC trends (Hgb, platelets, WBC, ANC, blasts) **aggregated across
-  MSK and Capital Health**, every value tagged with its source institution.
+- **Labs** — CBC (Hgb, platelets, WBC, ANC, blasts), kidney (creatinine, eGFR,
+  BUN, urine albumin/creatinine), liver (AST, ALT), LDH and uric acid trends
+  **aggregated across MSK and Capital Health**, every value tagged with its
+  source institution and flagged against its own lab's range.
+- **Import from MyChart** — pick MyChart "Test Details" or "Result Trends" PDFs;
+  they're parsed on the device, reviewed, then saved (re-imports are no-ops).
 - **Pallor** — conjunctiva eye-photo tracking with camera capture + fallback.
 - **Score** — subtype-aware risk scoring (DIPSS for myelofibrosis,
   IPSET-thrombosis for ET, PV risk) from the clinical profile and labs.

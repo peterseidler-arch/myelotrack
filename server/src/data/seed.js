@@ -1,3 +1,5 @@
+import { ANALYTES, computeFlag } from './analytes.js';
+
 /**
  * Seed data for the in-memory backend, shaped to match the API and database schema
  * (see docs/database-schema.md). Fake data only — no real PHI.
@@ -10,25 +12,10 @@ const daysAgo = (n) => {
   return d;
 };
 
-const ANALYTE_META = {
-  hemoglobin: { unit: 'g/dL', refLow: 13.5, refHigh: 17.5, loinc: '718-7' },
-  platelets: { unit: 'K/µL', refLow: 150, refHigh: 400, loinc: '777-3' },
-  wbc: { unit: 'K/µL', refLow: 4.0, refHigh: 11.0, loinc: '6690-2' },
-  anc: { unit: 'K/µL', refLow: 1.8, refHigh: 7.7, loinc: '751-8' },
-  blasts: { unit: '%', refLow: 0, refHigh: 0, loinc: '709-7' },
-};
-
-/** Clinical flag for a value against its analyte's reference range. */
-export function computeFlag(analyte, value) {
-  if (analyte === 'blasts') {
-    if (value <= 0) return 'normal';
-    return value >= 5 ? 'critical' : 'high';
-  }
-  const meta = ANALYTE_META[analyte];
-  if (value < meta.refLow) return 'low';
-  if (value > meta.refHigh) return 'high';
-  return 'normal';
-}
+// Analyte catalog + flagging live in ./analytes.js; re-exported for callers
+// that import them from here.
+export { computeFlag } from './analytes.js';
+const ANALYTE_META = ANALYTES;
 
 function labResult(analyte, daysBack, value, source, seq) {
   const meta = ANALYTE_META[analyte];

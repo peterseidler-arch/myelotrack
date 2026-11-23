@@ -31,6 +31,7 @@ export function apiRouter() {
 
   r.get('/labs/analytes', labs.analytes);
   r.get('/labs', labs.list);
+  r.post('/labs/import', labs.importResults);
 
   r.get('/pallor', pallor.list);
   r.post('/pallor', pallor.uploadImage, pallor.create);
