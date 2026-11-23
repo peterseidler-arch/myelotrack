@@ -50,16 +50,21 @@ export const DEV_USER_ID = 'user_1';
  * Either way, `req.repo` is the repository scoped to `req.authUserId`, so a
  * controller can only ever reach the signed-in patient's data.
  */
-export function requireAuth(req, res, next) {
-  let subject = DEV_USER_ID;
-  if (config.auth.required) {
-    subject = verifySession(readSessionToken(req), config.auth.sessionSecret);
-    if (!subject) {
-      res.status(401).json({ error: 'unauthorized', message: 'Sign in required' });
-      return;
+export async function requireAuth(req, res, next) {
+  try {
+    let subject = DEV_USER_ID;
+    if (config.auth.required) {
+      subject = verifySession(readSessionToken(req), config.auth.sessionSecret);
+      // A signed token for a deleted account must not keep working.
+      if (!subject || !(await req.app.locals.repo.getUser(subject))) {
+        res.status(401).json({ error: 'unauthorized', message: 'Sign in required' });
+        return;
+      }
     }
+    req.authUserId = subject;
+    req.repo = req.app.locals.repo.forUser(subject);
+    next();
+  } catch (err) {
+    next(err);
   }
-  req.authUserId = subject;
-  req.repo = req.app.locals.repo.forUser(subject);
-  next();
 }

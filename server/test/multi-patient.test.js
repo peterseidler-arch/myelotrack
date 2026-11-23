@@ -57,9 +57,9 @@ test("a patient can't read another patient's pallor reading by id", async () => 
   assert.equal(bobs.length, 0);
 });
 
-test("erasing one account leaves the other patient's data intact", async () => {
+test("erasing one patient's data leaves the other patient's data intact", async () => {
   await post('/api/v1/symptoms', { items: { fatigue: 2 }, note: 'B' }, bob);
-  const del = await fetch(`${base}/api/v1/account`, {
+  const del = await fetch(`${base}/api/v1/account/data`, {
     method: 'DELETE',
     headers: as(alice),
   });
@@ -95,4 +95,36 @@ test('sign-in options use discoverable credentials (no allow-list)', async () =>
   ).json();
   assert.ok(data.challenge);
   assert.ok(!data.allowCredentials || data.allowCredentials.length === 0);
+});
+
+test('closing an account removes the user, passkeys and data, and ends the session', async () => {
+  const carol = repo.createUser()._id;
+  repo.addCredential(carol, { id: 'cred-carol', publicKey: 'pk', counter: 0 });
+  await post('/api/v1/symptoms', { items: { fatigue: 4 }, note: 'C' }, carol);
+  const headers = as(carol);
+
+  const res = await fetch(`${base}/api/v1/account`, { method: 'DELETE', headers });
+  assert.equal(res.status, 200);
+  const { data } = await res.json();
+  assert.equal(data.accountDeleted, true);
+  assert.equal(data.deleted.symptoms, 1);
+  assert.match(res.headers.get('set-cookie') || '', /mt_session=;/);
+
+  assert.equal(repo.getUser(carol), null);
+  assert.equal(repo.getCredential('cred-carol'), null);
+
+  // The old, still-signed session token no longer opens anything.
+  const after = await fetch(`${base}/api/v1/symptoms`, { headers });
+  assert.equal(after.status, 401);
+  const me = (await (await fetch(`${base}/api/v1/auth/me`, { headers })).json()).data;
+  assert.equal(me.authenticated, false);
+
+  // Other patients are untouched.
+  assert.ok(repo.getUser(bob));
+  assert.equal((await (await get('/api/v1/symptoms', bob)).json()).data.length, 1);
+});
+
+test('a session for an account that never existed is rejected', async () => {
+  const res = await get('/api/v1/labs', 'u_does-not-exist');
+  assert.equal(res.status, 401);
 });

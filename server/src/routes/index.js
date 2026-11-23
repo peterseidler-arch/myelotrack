@@ -41,8 +41,9 @@ export function apiRouter() {
   r.get('/integrations/:source/callback', integrations.callback);
   r.post('/integrations/:source/sync', integrations.sync);
 
-  // Account: export everything, or erase it (honors the consent promise).
+  // Account: export everything, erase the health data, or close the account.
   r.get('/account/export', account.exportData);
+  r.delete('/account/data', account.deleteData);
   r.delete('/account', account.deleteAccount);
 
   return r;
