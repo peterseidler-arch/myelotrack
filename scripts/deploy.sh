@@ -5,26 +5,33 @@
 # revision. Run scripts/setup-gcp.sh first (APIs, bucket, secrets).
 #
 # Passkey auth (WebAuthn) binds credentials to an exact origin, so the service
-# needs to know its own public host. This script figures that out for you:
+# needs to know its own public host. Sign-in is ALWAYS on (the server refuses
+# to start in production without it):
 #   • DOMAIN set        → use https://$DOMAIN
 #   • else service URL  → reuse the existing *.run.app host
-#   • else (very first) → bootstrap with AUTH_REQUIRED=false, then tells you to
-#                          re-run once the URL exists to turn passkeys on.
+#   • else (very first) → deploy PRIVATE (no public access), read the new URL,
+#                          bind passkeys to it, then open public access.
 #
 # Usage:
-#   PROJECT_ID=cognigenics-myelotrack REGION=us-east1 [DOMAIN=app.example.com] \
+#   PROJECT_ID=<your-project> REGION=us-east1 [DOMAIN=app.example.com] \
 #     bash scripts/deploy.sh
 set -euo pipefail
 
-PROJECT_ID="${PROJECT_ID:-cognigenics-myelotrack}"
+PROJECT_ID="${PROJECT_ID:?set PROJECT_ID to your Google Cloud project id}"
 REGION="${REGION:-us-east1}"
 SERVICE="${SERVICE:-myelotrack}"
+SQL_INSTANCE="${SQL_INSTANCE:-myelotrack-db}"
 DOMAIN="${DOMAIN:-}"
 
 existing_url() {
   gcloud run services describe "$SERVICE" \
     --project="$PROJECT_ID" --region="$REGION" \
     --format='value(status.url)' 2>/dev/null || true
+}
+
+origin_env() {
+  local host="$1"
+  echo "RP_ID=$host,RP_ORIGIN=https://$host,APP_URL=https://$host,CORS_ORIGINS=https://$host"
 }
 
 HOST=""
@@ -36,31 +43,42 @@ else
 fi
 
 BUCKET="${BUCKET:-${PROJECT_ID}-pallor}"
-STORAGE="STORAGE_BACKEND=gcs,STORAGE_BUCKET=$BUCKET"
+CONNECTION_NAME="$(gcloud sql instances describe "$SQL_INSTANCE" \
+  --project="$PROJECT_ID" --format='value(connectionName)')"
+ENV="DATA_BACKEND=postgres,STORAGE_BACKEND=gcs,STORAGE_BUCKET=$BUCKET"
+ENV="$ENV,AUTH_REQUIRED=true,RP_NAME=MyeloTrack"
 
 if [ -n "$HOST" ]; then
-  echo "▸ Deploying with passkey auth bound to: https://$HOST"
-  ENV="DATA_BACKEND=mongo,$STORAGE,AUTH_REQUIRED=true,RP_NAME=MyeloTrack"
-  ENV="$ENV,RP_ID=$HOST,RP_ORIGIN=https://$HOST,APP_URL=https://$HOST,CORS_ORIGINS=https://$HOST"
+  echo "▸ Deploying with passkeys bound to: https://$HOST"
+  ENV="$ENV,$(origin_env "$HOST")"
+  ACCESS="--allow-unauthenticated"
 else
-  echo "▸ First deploy — no public host yet. Bootstrapping WITHOUT auth."
-  echo "  Re-run this script after it prints the URL to enable passkeys."
-  ENV="DATA_BACKEND=mongo,$STORAGE,AUTH_REQUIRED=false,RP_NAME=MyeloTrack"
+  echo "▸ First deploy: no public host yet. Deploying private, then binding passkeys."
+  ENV="$ENV,RP_ID=localhost,RP_ORIGIN=https://localhost"
+  ACCESS="--no-allow-unauthenticated"
 fi
 
 gcloud run deploy "$SERVICE" \
   --source . \
   --project="$PROJECT_ID" \
   --region="$REGION" \
-  --allow-unauthenticated \
+  $ACCESS \
+  --add-cloudsql-instances="$CONNECTION_NAME" \
   --set-env-vars="$ENV" \
-  --set-secrets="MONGODB_URI=MONGODB_URI:latest,FIELD_ENCRYPTION_KEY=FIELD_ENCRYPTION_KEY:latest,SESSION_SECRET=SESSION_SECRET:latest" \
+  --set-secrets="DATABASE_URL=DATABASE_URL:latest,FIELD_ENCRYPTION_KEY=FIELD_ENCRYPTION_KEY:latest,SESSION_SECRET=SESSION_SECRET:latest" \
   --quiet
 
 URL="$(existing_url)"
+if [ -z "$HOST" ]; then
+  HOST="${URL#https://}"
+  echo "▸ Binding passkeys to https://$HOST and opening public access…"
+  gcloud run services update "$SERVICE" \
+    --project="$PROJECT_ID" --region="$REGION" \
+    --update-env-vars="$(origin_env "$HOST")" --quiet
+  gcloud run services add-iam-policy-binding "$SERVICE" \
+    --project="$PROJECT_ID" --region="$REGION" \
+    --member=allUsers --role=roles/run.invoker --quiet >/dev/null
+fi
+
 echo ""
 echo "✓ Deployed: $URL"
-if [ -z "$HOST" ]; then
-  echo "  Now re-run to bind passkeys to this host:"
-  echo "    PROJECT_ID=$PROJECT_ID REGION=$REGION bash scripts/deploy.sh"
-fi

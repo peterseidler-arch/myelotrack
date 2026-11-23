@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import {
   generateRegistrationOptions,
   verifyRegistrationResponse,
@@ -15,24 +16,39 @@ import {
 
 const repo = (req) => req.app.locals.repo;
 
-// Single-tenant subject for this personal app.
-const USER_ID = 'user_1';
-const USER_NAME = 'patient@myelotrack.local';
-
 const b64 = (u8) => Buffer.from(u8).toString('base64url');
 const fromB64 = (s) => new Uint8Array(Buffer.from(s, 'base64url'));
 
+/** The signed-in user id, or null. */
+const sessionUser = (req) =>
+  verifySession(readSessionToken(req), config.auth.sessionSecret);
+
+/**
+ * Pull the challenge out of a WebAuthn response's clientDataJSON so we can
+ * find (and consume) the ceremony it belongs to. Returns null if malformed.
+ */
+function challengeFrom(body) {
+  try {
+    const json = Buffer.from(body?.response?.clientDataJSON || '', 'base64url');
+    return JSON.parse(json.toString('utf8')).challenge || null;
+  } catch {
+    return null;
+  }
+}
+
 /** GET /api/v1/auth/me — auth state for the client to decide what UI to show. */
 export const me = asyncHandler(async (req, res) => {
-  const authenticated = Boolean(
-    verifySession(readSessionToken(req), config.auth.sessionSecret),
-  );
-  const credentials = await repo(req).listCredentials();
+  const userId = sessionUser(req);
+  // hasCredentials drives the gate's default button. Signed out, it reports
+  // whether any account exists on this server (sign in vs. first-run sign up).
+  const hasCredentials = userId
+    ? (await repo(req).listCredentials(userId)).length > 0
+    : (await repo(req).countCredentials()) > 0;
   res.json({
     data: {
-      authenticated,
+      authenticated: Boolean(userId),
       required: config.auth.required,
-      hasCredentials: credentials.length > 0,
+      hasCredentials,
     },
   });
 });
@@ -43,32 +59,43 @@ export const logout = asyncHandler(async (req, res) => {
   res.json({ data: { ok: true } });
 });
 
-/** GET /api/v1/auth/registration/options — begin passkey registration. */
+/**
+ * GET /api/v1/auth/registration/options — begin passkey registration.
+ * Signed in: adds another passkey to the current account. Signed out: creates
+ * a new patient account, which owns the passkey once verified.
+ */
 export const registrationOptions = asyncHandler(async (req, res) => {
-  const existing = await repo(req).listCredentials();
+  const currentUser = sessionUser(req);
+  // A random WebAuthn user handle for new accounts; never an email or PHI.
+  const userId = currentUser || null;
+  const userHandle = currentUser || `pending_${randomUUID()}`;
+  const existing = currentUser ? await repo(req).listCredentials(currentUser) : [];
   const options = await generateRegistrationOptions({
     rpName: config.auth.rpName,
     rpID: config.auth.rpId,
-    userID: new TextEncoder().encode(USER_ID),
-    userName: USER_NAME,
+    userID: new TextEncoder().encode(userHandle),
+    userName: 'MyeloTrack account',
     attestationType: 'none',
     excludeCredentials: existing.map((c) => ({ id: c.id, transports: c.transports })),
-    authenticatorSelection: { residentKey: 'preferred', userVerification: 'preferred' },
+    authenticatorSelection: { residentKey: 'required', userVerification: 'preferred' },
   });
-  await repo(req).setAuthChallenge(options.challenge);
+  await repo(req).saveChallenge(options.challenge, { purpose: 'registration', userId });
   res.json({ data: options });
 });
 
 /** POST /api/v1/auth/registration/verify — finish passkey registration. */
 export const registrationVerify = asyncHandler(async (req, res) => {
-  const expectedChallenge = await repo(req).getAuthChallenge();
-  if (!expectedChallenge) throw badRequest('no registration in progress');
+  const challenge = challengeFrom(req.body);
+  const ceremony = challenge
+    ? await repo(req).consumeChallenge(challenge, 'registration')
+    : null;
+  if (!ceremony) throw badRequest('no registration in progress');
 
   let verification;
   try {
     verification = await verifyRegistrationResponse({
       response: req.body,
-      expectedChallenge,
+      expectedChallenge: challenge,
       expectedOrigin: config.auth.origin,
       expectedRPID: config.auth.rpId,
     });
@@ -79,35 +106,40 @@ export const registrationVerify = asyncHandler(async (req, res) => {
     throw badRequest('registration could not be verified');
   }
 
+  const userId = ceremony.userId || (await repo(req).createUser())._id;
   const { credential } = verification.registrationInfo;
-  await repo(req).addCredential({
+  await repo(req).addCredential(userId, {
     id: credential.id,
     publicKey: b64(credential.publicKey),
     counter: credential.counter,
     transports: req.body.response?.transports || [],
   });
-  await repo(req).setAuthChallenge(null);
 
-  setSessionCookie(res, issueSession(USER_ID, config.auth.sessionSecret));
+  setSessionCookie(res, issueSession(userId, config.auth.sessionSecret));
   res.status(201).json({ data: { verified: true } });
 });
 
-/** GET /api/v1/auth/authentication/options — begin passkey sign-in. */
+/**
+ * GET /api/v1/auth/authentication/options — begin passkey sign-in. Uses
+ * discoverable credentials (no allow-list), so the authenticator picks the
+ * account and the server learns who it is from the credential id.
+ */
 export const authenticationOptions = asyncHandler(async (req, res) => {
-  const creds = await repo(req).listCredentials();
   const options = await generateAuthenticationOptions({
     rpID: config.auth.rpId,
-    allowCredentials: creds.map((c) => ({ id: c.id, transports: c.transports })),
     userVerification: 'preferred',
   });
-  await repo(req).setAuthChallenge(options.challenge);
+  await repo(req).saveChallenge(options.challenge, { purpose: 'authentication' });
   res.json({ data: options });
 });
 
 /** POST /api/v1/auth/authentication/verify — finish passkey sign-in. */
 export const authenticationVerify = asyncHandler(async (req, res) => {
-  const expectedChallenge = await repo(req).getAuthChallenge();
-  if (!expectedChallenge) throw badRequest('no sign-in in progress');
+  const challenge = challengeFrom(req.body);
+  const ceremony = challenge
+    ? await repo(req).consumeChallenge(challenge, 'authentication')
+    : null;
+  if (!ceremony) throw badRequest('no sign-in in progress');
 
   const stored = await repo(req).getCredential(req.body?.id);
   if (!stored) throw badRequest('unknown credential');
@@ -116,7 +148,7 @@ export const authenticationVerify = asyncHandler(async (req, res) => {
   try {
     verification = await verifyAuthenticationResponse({
       response: req.body,
-      expectedChallenge,
+      expectedChallenge: challenge,
       expectedOrigin: config.auth.origin,
       expectedRPID: config.auth.rpId,
       credential: {
@@ -135,8 +167,7 @@ export const authenticationVerify = asyncHandler(async (req, res) => {
     stored.id,
     verification.authenticationInfo.newCounter,
   );
-  await repo(req).setAuthChallenge(null);
 
-  setSessionCookie(res, issueSession(USER_ID, config.auth.sessionSecret));
+  setSessionCookie(res, issueSession(stored.userId, config.auth.sessionSecret));
   res.json({ data: { verified: true } });
 });

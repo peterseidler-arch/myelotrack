@@ -7,7 +7,9 @@
 #
 # Local test:
 #   docker build -t myelotrack:local .
-#   docker run --rm -p 8080:8080 myelotrack:local
+#   # Production mode refuses to start without sign-in, Postgres and secrets.
+#   # For a quick local look on sample data, override NODE_ENV:
+#   docker run --rm -p 8080:8080 -e NODE_ENV=development myelotrack:local
 #   open http://localhost:8080          # PWA + API on one origin
 #   curl localhost:8080/healthz
 #
@@ -37,8 +39,8 @@ ENV NODE_ENV=production \
 WORKDIR /app
 
 # Production dependencies only. web has no runtime deps (Vite is dev-only), so
-# this resolves to the server's deps (express, multer, simplewebauthn) plus the
-# optional mongoose driver.
+# this resolves to the server's deps (express, multer, simplewebauthn, pg) plus
+# the optional GCS client.
 COPY package.json package-lock.json ./
 COPY web/package.json web/package.json
 COPY server/package.json server/package.json

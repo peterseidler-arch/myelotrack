@@ -1,17 +1,141 @@
+import { randomUUID } from 'node:crypto';
 import { buildSeed, computeFlag } from '../../data/seed.js';
 
-/**
- * In-memory repository. Implements the data-access surface the controllers
- * need, backed by seeded arrays. This is the default backend so the app runs
- * with zero external dependencies; the Mongo repository implements the same
- * interface (see repositories/index.js).
- */
-export function createMemoryRepository() {
-  const db = buildSeed();
-  // WebAuthn state for the singleton user (passkey credentials + the
-  // in-flight registration/authentication challenge).
-  const auth = { challenge: null, credentials: [] };
+/** Ceremony challenges expire after this long (WebAuthn ceremonies are short). */
+const CHALLENGE_TTL_MS = 5 * 60 * 1000;
 
+/**
+ * In-memory repository. The default backend, so the app runs with zero
+ * external dependencies. Every durable backend implements the same interface
+ * (see repositories/index.js and docs/database-schema.md).
+ *
+ * Multi-patient: PHI lives in one isolated bucket per user, and is reachable
+ * only through `forUser(userId)`, which returns a repository scoped to that
+ * patient. There is no method that reads PHI across patients. Account-level
+ * state (users, passkey credentials, ceremony challenges, the audit log) sits
+ * on the top-level object.
+ *
+ * The seed (sample data only, no real PHI) belongs to the dev user `user_1`,
+ * which is the subject used when AUTH_REQUIRED=false.
+ */
+export function createMemoryRepository({ seed = true } = {}) {
+  const users = new Map();
+  const patients = new Map(); // userId -> PHI bucket
+  const credentials = []; // { id, userId, publicKey, counter, transports }
+  const challenges = new Map(); // challenge -> { purpose, userId, expiresAt }
+  const auditLog = [];
+
+  const emptyBucket = () => ({
+    symptomEntries: [],
+    medications: [],
+    doseLogs: [],
+    labResults: [],
+    pallorPhotos: [],
+    integrationConnections: [],
+  });
+
+  if (seed) {
+    // eslint-disable-next-line no-unused-vars -- the seed's audit log is dropped
+    const { user, auditLog, ...phi } = buildSeed();
+    users.set(user._id, { ...user, createdAt: new Date() });
+    patients.set(user._id, { ...emptyBucket(), ...phi });
+  }
+
+  const bucketFor = (userId) => {
+    if (!userId) throw new Error('repository: a userId is required for PHI access');
+    let bucket = patients.get(userId);
+    if (!bucket) {
+      bucket = emptyBucket();
+      patients.set(userId, bucket);
+    }
+    return bucket;
+  };
+
+  return {
+    kind: 'memory',
+
+    /** A repository scoped to one patient's PHI. */
+    forUser(userId) {
+      return createPatientScope(userId, bucketFor(userId));
+    },
+
+    // --- Users ---
+    createUser({ displayName = '' } = {}) {
+      const user = { _id: `u_${randomUUID()}`, displayName, createdAt: new Date() };
+      users.set(user._id, user);
+      bucketFor(user._id);
+      return user;
+    },
+    getUser(userId) {
+      return users.get(userId) || null;
+    },
+    countUsers() {
+      return users.size;
+    },
+    /**
+     * Remove the account itself: the user, their passkeys and their PHI.
+     * Audit entries are kept (append-only by design).
+     */
+    deleteUser(userId) {
+      users.delete(userId);
+      patients.delete(userId);
+      for (let i = credentials.length - 1; i >= 0; i--) {
+        if (credentials[i].userId === userId) credentials.splice(i, 1);
+      }
+    },
+
+    // --- Passkey credentials ---
+    listCredentials(userId) {
+      return credentials.filter((c) => c.userId === userId);
+    },
+    countCredentials() {
+      return credentials.length;
+    },
+    /** Look up a credential by its id (global: this is how sign-in finds the user). */
+    getCredential(id) {
+      return credentials.find((c) => c.id === id) || null;
+    },
+    addCredential(userId, cred) {
+      const record = { ...cred, userId };
+      credentials.push(record);
+      return record;
+    },
+    updateCredentialCounter(id, counter) {
+      const cred = credentials.find((c) => c.id === id);
+      if (cred) cred.counter = counter;
+    },
+
+    // --- WebAuthn ceremony challenges (single use, short-lived) ---
+    saveChallenge(challenge, { purpose, userId = null }) {
+      challenges.set(challenge, {
+        purpose,
+        userId,
+        expiresAt: Date.now() + CHALLENGE_TTL_MS,
+      });
+    },
+    /** Return and delete a live challenge, or null if unknown/expired/wrong purpose. */
+    consumeChallenge(challenge, purpose) {
+      const record = challenges.get(challenge);
+      if (!record) return null;
+      challenges.delete(challenge);
+      if (record.purpose !== purpose || record.expiresAt < Date.now()) return null;
+      return { purpose: record.purpose, userId: record.userId };
+    },
+
+    // --- Audit (append-only) ---
+    recordAudit(entry) {
+      auditLog.push({ ...entry });
+    },
+    getAuditLog({ userId } = {}) {
+      return userId ? auditLog.filter((e) => e.userId === userId) : [...auditLog];
+    },
+
+    computeFlag,
+  };
+}
+
+/** The PHI surface for a single patient. Every method touches only `db`. */
+function createPatientScope(userId, db) {
   const inRange = (date, from, to) => {
     const t = new Date(date).getTime();
     if (from && t < new Date(from).getTime()) return false;
@@ -21,6 +145,7 @@ export function createMemoryRepository() {
 
   return {
     kind: 'memory',
+    userId,
 
     // --- Symptoms ---
     listSymptoms({ from, to } = {}) {
@@ -35,7 +160,7 @@ export function createMemoryRepository() {
         (e) => new Date(e.date).toISOString().slice(0, 10) === dayKey,
       );
       const record = {
-        _id: existing?._id || `s_${Date.now()}`,
+        _id: existing?._id || `s_${randomUUID()}`,
         date,
         items: entry.items || {},
         total: entry.total ?? 0,
@@ -62,11 +187,7 @@ export function createMemoryRepository() {
           ? db.medications.find((x) => x.provenance?.externalId === externalId)
           : null;
         if (existing) Object.assign(existing, m);
-        else
-          db.medications.push({
-            _id: m._id || `med_${db.medications.length}_${externalId || 'm'}`,
-            ...m,
-          });
+        else db.medications.push({ _id: m._id || `med_${randomUUID()}`, ...m });
       }
       return meds.length;
     },
@@ -74,7 +195,7 @@ export function createMemoryRepository() {
       const med = db.medications.find((m) => m._id === medicationId);
       if (!med) return null;
       const record = {
-        _id: `dose_${Date.now()}`,
+        _id: `dose_${randomUUID()}`,
         medicationId,
         status: status || 'taken',
         scheduledFor: scheduledFor ? new Date(scheduledFor) : new Date(),
@@ -112,14 +233,8 @@ export function createMemoryRepository() {
         const existing = externalId
           ? db.labResults.find((l) => l.provenance?.externalId === externalId)
           : null;
-        if (existing) {
-          Object.assign(existing, r);
-        } else {
-          db.labResults.push({
-            _id: r._id || `lab_${db.labResults.length}_${externalId || 'm'}`,
-            ...r,
-          });
-        }
+        if (existing) Object.assign(existing, r);
+        else db.labResults.push({ _id: r._id || `lab_${randomUUID()}`, ...r });
       }
       return results.length;
     },
@@ -132,7 +247,7 @@ export function createMemoryRepository() {
     },
     addPallorPhoto(entry) {
       const record = {
-        _id: `p_${Date.now()}_${db.pallorPhotos.length}`,
+        _id: `p_${randomUUID()}`,
         capturedAt: entry.capturedAt ? new Date(entry.capturedAt) : new Date(),
         eye: entry.eye || 'right',
         pallorScore: entry.pallorScore ?? null,
@@ -175,32 +290,10 @@ export function createMemoryRepository() {
       return conn;
     },
 
-    // --- Auth (passkeys) ---
-    setAuthChallenge(challenge) {
-      auth.challenge = challenge;
-    },
-    getAuthChallenge() {
-      return auth.challenge;
-    },
-    listCredentials() {
-      return auth.credentials;
-    },
-    getCredential(id) {
-      return auth.credentials.find((c) => c.id === id) || null;
-    },
-    addCredential(cred) {
-      auth.credentials.push(cred);
-      return cred;
-    },
-    updateCredentialCounter(id, counter) {
-      const cred = auth.credentials.find((c) => c.id === id);
-      if (cred) cred.counter = counter;
-    },
-
     // --- Account: export & erasure ---
     /**
      * The patient's full record as plain data, for a "download my data"
-     * export. Integration connections are included as metadata only — never
+     * export. Integration connections are included as metadata only, never
      * the encrypted OAuth tokens.
      */
     exportData() {
@@ -221,10 +314,8 @@ export function createMemoryRepository() {
       };
     },
     /**
-     * Erase all PHI for the patient (right to be forgotten). Clears each
-     * collection in place so existing references stay valid, and returns the
-     * per-collection counts removed. The passkey credential is intentionally
-     * kept so the patient can sign back into a now-empty app.
+     * Erase all of this patient's PHI and return per-collection counts. The
+     * passkey credential is kept so the patient can sign back in.
      */
     deleteAllData() {
       const counts = {
@@ -235,28 +326,10 @@ export function createMemoryRepository() {
         pallor: db.pallorPhotos.length,
         integrations: db.integrationConnections.length,
       };
-      for (const key of [
-        'symptomEntries',
-        'medications',
-        'doseLogs',
-        'labResults',
-        'pallorPhotos',
-        'integrationConnections',
-      ]) {
-        db[key].length = 0;
-      }
+      for (const key of Object.keys(db)) db[key].length = 0;
       return counts;
     },
 
-    // --- Audit ---
-    recordAudit(entry) {
-      db.auditLog.push(entry);
-    },
-    getAuditLog() {
-      return db.auditLog;
-    },
-
-    // Exposed for the flag helper so controllers stay thin.
     computeFlag,
   };
 }

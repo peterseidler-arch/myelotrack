@@ -42,7 +42,7 @@ jobs:
 
       # Builds the image from the Dockerfile via Cloud Build, then deploys a
       # new revision. Flags not passed here (scaling, secrets, service account,
-      # Atlas URI) are preserved from the existing service — the first manual
+      # database connection) are preserved from the existing service — the first manual
       # `gcloud run deploy` establishes that full config (see docs/deploy.md).
       - name: Deploy to Cloud Run
         run: |

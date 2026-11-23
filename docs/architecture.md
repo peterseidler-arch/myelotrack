@@ -1,7 +1,9 @@
 # MyeloTrack — Architecture
 
-MyeloTrack is a personal health-tracking app for a single patient managing a
-myeloproliferative neoplasm (MPN) — here, myelofibrosis with an MDS overlap.
+MyeloTrack is a health-tracking app for people managing a myeloproliferative
+neoplasm (MPN). It started as one patient's tool (myelofibrosis with an MDS
+overlap) and is now **multi-patient**: anyone can create an account, and each
+patient sees only their own record.
 The clinical reality that drives the architecture: **care is split across
 multiple institutions**, each with its own patient portal and its own copy of
 the labs. Bloodwork gets drawn at Memorial Sloan Kettering (MSK) for the
@@ -12,7 +14,7 @@ place where the whole picture lives.
 ```
 ┌──────────────────────────────────────────────────────────────┐
 │  Client (prototype/index.html today → PWA / native later)      │
-│  Today · Meds · Labs · Pallor                                  │
+│  Today · Meds · Labs · Pallor · Score · Trends · Settings      │
 └───────────────┬────────────────────────────────────────────────┘
                 │  HTTPS (JSON, bearer token)
         ┌───────▼────────┐
@@ -21,9 +23,9 @@ place where the whole picture lives.
         └───┬───────┬─────┘
             │       │
    ┌────────▼──┐  ┌─▼──────────────────────────────────────────┐
-   │ MongoDB    │  │ Integration workers (scheduled + on-demand) │
-   │ (Atlas,    │  │  • MSK        → Epic FHIR R4 (SMART/OAuth)  │
-   │  encrypted)│  │  • Capital H. → Epic FHIR R4 (SMART/OAuth)  │
+   │ Cloud SQL  │  │ Integration workers (scheduled + on-demand) │
+   │ Postgres   │  │  • MSK        → Epic FHIR R4 (SMART/OAuth)  │
+   │ (RLS/user) │  │  • Capital H. → Epic FHIR R4 (SMART/OAuth)  │
    └────────────┘  │  • Apple Health → HealthKit export (client) │
                    └─────────────────────────────────────────────┘
 ```
@@ -42,7 +44,7 @@ any native wrapper. Native only becomes necessary for deeper HealthKit access
 and reliable background sync.
 
 The store's field names deliberately mirror the `server/` API responses and the
-MongoDB schema, so swapping the seeded in-memory store for real API calls is a
+database schema, so swapping the seeded in-memory store for real API calls is a
 data-source change, not a reshape.
 
 Four tabs:
@@ -64,8 +66,18 @@ Four tabs:
 
 ### 2. Backend API (Express)
 
-Stateless JSON API. Everything is scoped to the authenticated patient — this is
-a single-tenant-per-user app, not a clinic system.
+Stateless JSON API. Every PHI route is scoped to the signed-in patient:
+`requireAuth` verifies the session and binds `req.repo` to
+`repo.forUser(userId)`, so a controller can only reach that patient's data.
+It is a patient-facing app, not a clinic system: no user can see another's
+record. Sign-up and sign-in are passkeys (WebAuthn, discoverable credentials);
+a new passkey registered while signed out creates a new account.
+
+Storage sits behind a repository interface with two implementations, chosen by
+`DATA_BACKEND`: `memory` (local dev, seeded sample data) and `postgres`
+(production, Cloud SQL). Production refuses to start unless sign-in is on, the
+backend is Postgres, and the encryption and session secrets are set. See
+[`database-schema.md`](database-schema.md) for the isolation model.
 
 ```
 POST   /api/v1/auth/login              # passwordless / passkey preferred
@@ -170,20 +182,26 @@ Outreach email template:
 
 This is PHI. Non-negotiables before any real backend serves real data:
 
-- **Encryption at rest** — MongoDB Atlas with encryption enabled; field-level
-  encryption for the most sensitive fields; photos in an encrypted object store
-  (S3 SSE-KMS or equivalent), never in the DB.
+- **Encryption at rest** — Cloud SQL (encrypted at rest by default; CMEK if
+  policy requires); field-level AES-256-GCM for OAuth tokens; pallor photos
+  encrypted in-process, then stored in Cloud Storage, never in the DB.
+- **Per-patient isolation** — repository scoping plus Postgres row-level
+  security on every PHI table (see `database-schema.md`).
 - **Encryption in transit** — TLS everywhere; HSTS; no mixed content.
 - **Audit logging** — append-only log of every read/write to PHI (who, what,
   when, from where), retained per policy and never mutated in place.
 - **Access control** — passwordless/passkey auth, short-lived access tokens,
   refresh rotation. OAuth refresh tokens for the FHIR sources stored encrypted
   and never returned to the client.
-- **HIPAA-compliant hosting** — a provider that will sign a **BAA**
-  (AWS/GCP/Azure all do; MongoDB Atlas offers a BAA). Even for a single-patient
-  personal app, treat it as covered and design to the standard.
+- **HIPAA-compliant hosting** — Google Cloud under its **BAA**, using only
+  products on Google's HIPAA-covered list (Cloud Run, Cloud SQL, Cloud Storage,
+  Secret Manager, Cloud KMS, Cloud Logging; checked November 2026). Firebase
+  is not on that list, so it is not used for PHI.
 - **Data minimization** — pull only the analytes and resources the app uses;
   don't hoard the whole record.
 
-None of the above is implemented in the prototype. The prototype holds only
-seeded, fake data in memory and talks to no network.
+Status (November 2026): passkey sign-in, per-patient isolation (code + RLS),
+the append-only audit table, encrypted tokens and images, and the
+production start-up guard are implemented. Still to do before real patients:
+signing the BAA under the owning entity, CMEK and retention decisions, and
+keeping PHI out of application logs and error tracking.

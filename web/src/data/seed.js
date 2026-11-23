@@ -15,7 +15,7 @@ function withLocalOverride(state) {
 
 /**
  * Build the initial in-memory application state. Field names mirror the
- * backend API responses / MongoDB schema (see docs/), so swapping this seed
+ * backend API responses / database schema (see docs/), so swapping this seed
  * for real API calls is a data-source change, not a reshape.
  *
  * All data here is fake and lives only in memory — refresh resets it.

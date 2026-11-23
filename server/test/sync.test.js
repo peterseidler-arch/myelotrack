@@ -82,7 +82,7 @@ test('normalizeObservations maps known codes and drops the rest', () => {
 });
 
 test('syncLabsForConnection normalizes, upserts, and is idempotent', async () => {
-  const repo = createMemoryRepository();
+  const repo = createMemoryRepository().forUser('user_1');
   const before = repo.listLabs().length;
 
   const run = () =>
@@ -159,7 +159,7 @@ test('normalizeMedicationRequests maps name/dose/times and drops nameless', () =
 });
 
 test('syncMedicationsForConnection upserts idempotently', async () => {
-  const repo = createMemoryRepository();
+  const repo = createMemoryRepository().forUser('user_1');
   const before = repo.listMedications().length;
   const args = {
     repo,
@@ -178,7 +178,7 @@ test('syncMedicationsForConnection upserts idempotently', async () => {
 });
 
 test('syncForConnection runs labs + medications and stamps the sync', async () => {
-  const repo = createMemoryRepository();
+  const repo = createMemoryRepository().forUser('user_1');
   const combinedFetch = async (url, opts) => {
     if (url.includes('/Observation')) {
       return {

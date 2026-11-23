@@ -2,7 +2,8 @@
 
 This is the runbook for taking MyeloTrack from local-only to a live,
 HIPAA-ready web app on GCP. It is a **separate** GCP project, repo, and domain
-from any other Cognigenics project — nothing here is shared.
+from any other project — nothing here is shared. The Google Cloud account
+should belong to the legal entity that signs Google's BAA.
 
 **Topology.** One Cloud Run service runs the Express API, which also serves the
 built PWA from the same origin. Same origin means no cross-origin CORS and a
@@ -15,17 +16,18 @@ same-site session cookie. The container is defined by the repo `Dockerfile`.
   (Capacitor)│   └─ /api/v1/*            → JSON API (audited, passkey-gated)  │
             └───────┬───────────────────────────────────┬───────────────────┘
                     │                                     │
-          MongoDB Atlas (BAA)                    GCS bucket (SSE) — pallor photos
-          field-encrypted PHI                    + Secret Manager for keys
+   Cloud SQL for PostgreSQL               GCS bucket (SSE) — pallor photos
+   RLS per patient, append-only audit     + Secret Manager for keys
 ```
 
 **End state.** MyeloTrack runs at `https://<your-domain>` (or the default
 `*.run.app` URL). Patients sign in with a passkey; each sees only their own
-record. Labs/meds/symptoms/pallor persist in Atlas; pallor images live in an
-encrypted GCS bucket.
+record. Labs/meds/symptoms/pallor persist in Cloud SQL; pallor images live in
+an encrypted GCS bucket.
 
-**Rough cost.** Cloud Run scales to zero when idle (~$0 when unused); Atlas
-shared/serverless tier is a few dollars a month at this data volume.
+**Rough cost.** Cloud Run scales to zero when idle (~$0 when unused). Cloud SQL
+is always on: the smallest shared-core instance (`db-f1-micro`) is roughly
+$10 a month plus storage and backups.
 
 ---
 
@@ -46,91 +48,52 @@ You can build and run the exact production image locally right now:
 
 ```bash
 docker build -t myelotrack:local .
-docker run --rm -p 8080:8080 myelotrack:local
+docker run --rm -p 8080:8080 -e NODE_ENV=development myelotrack:local
 open http://localhost:8080        # PWA + API, one origin
 curl localhost:8080/healthz       # {"status":"ok","backend":"memory"}
 ```
 
-With no DB configured it runs on in-memory sample data — a faithful preview of
-the deployed app before any PHI is involved.
+With `NODE_ENV=development` and no DB it runs on in-memory sample data, a
+faithful preview before any PHI is involved. In real production mode the server
+refuses to start without sign-in, Postgres and secrets.
 
 ---
 
 ## Phase 1 — provision the infrastructure (one-time, needs your accounts)
 
-> **Shortcut.** Two things are yours alone: create the GCP project + link
-> billing (step 1 below) and create the Atlas cluster + **sign the BAA**
-> (step 2). After those, the rest is scripted:
->
-> ```bash
-> PROJECT_ID=cognigenics-myelotrack REGION=us-east1 bash scripts/setup-gcp.sh
-> # add your Atlas URI to Secret Manager (the script prints the exact command)
-> PROJECT_ID=cognigenics-myelotrack REGION=us-east1 bash scripts/deploy.sh
-> ```
->
-> The manual steps below are what those scripts run, for reference.
-
-### 1. GCP project + APIs
+Two things are yours alone: create the GCP project and link billing, and
+accept Google Cloud's **HIPAA BAA** for the account. Then:
 
 ```bash
 gcloud auth login
-PROJECT_ID=cognigenics-myelotrack           # globally unique
-gcloud projects create $PROJECT_ID --name="MyeloTrack"
-gcloud config set project $PROJECT_ID
-gcloud billing projects link $PROJECT_ID --billing-account=XXXXXX-XXXXXX-XXXXXX
-gcloud services enable \
-  run.googleapis.com \
-  cloudbuild.googleapis.com \
-  artifactregistry.googleapis.com \
-  secretmanager.googleapis.com \
-  storage.googleapis.com
+PROJECT_ID=<your-project> REGION=us-east1 bash scripts/setup-gcp.sh
+PROJECT_ID=<your-project> REGION=us-east1 bash scripts/deploy.sh
 ```
 
-### 2. MongoDB Atlas (with a BAA)
+`setup-gcp.sh` is safe to re-run. It:
 
-1. Create an Atlas project + cluster (M0/serverless is fine to start).
-2. **Sign the BAA** — Atlas offers one; this is non-negotiable for PHI.
-3. Enable encryption at rest (default on paid tiers) and TLS (default).
-4. Create a DB user; allow-list Cloud Run's egress (or use serverless + private
-   endpoint later). Grab the `mongodb+srv://…` connection string.
+1. Enables Cloud Run, Cloud Build, Artifact Registry, Secret Manager, Cloud
+   Storage and Cloud SQL Admin.
+2. Creates the pallor bucket and grants the runtime service account access.
+3. Creates a Cloud SQL for PostgreSQL 16 instance (`myelotrack-db`, daily
+   backups, point-in-time recovery, deletion protection), the `myelotrack`
+   database, and an app user `myelotrack_app` with a generated password.
+4. Stores `DATABASE_URL` (Cloud SQL socket form), `FIELD_ENCRYPTION_KEY` and
+   `SESSION_SECRET` in Secret Manager, and grants the runtime service account
+   `cloudsql.client` and `secretmanager.secretAccessor`.
 
-### 3. Encrypted object store for pallor photos
+`deploy.sh` builds from the Dockerfile and deploys with sign-in always on. On
+the very first deploy it deploys privately, reads the new `*.run.app` URL,
+binds passkeys to it, and only then opens public access. The server runs the
+database migrations on start.
 
-```bash
-gsutil mb -l us-east1 -b on gs://$PROJECT_ID-pallor
-# Bucket is encrypted at rest by default (Google-managed keys; upgrade to
-# CMEK/KMS if policy requires). A GCS storage backend for the API is Phase 1
-# code — until then images fall back to the encrypted local/Atlas path.
-```
+**Database role check.** Row-level security only isolates patients if the app's
+role can't bypass it. The server checks this on start and refuses to run in
+production if the role is a superuser or has `BYPASSRLS`. If it refuses, create
+a plain role in Cloud SQL Studio or `psql`, grant it ownership of the database,
+and point `DATABASE_URL` at it.
 
-### 4. Secrets
-
-Generate the field-encryption key and store every secret in Secret Manager —
-never in the image or env files:
-
-```bash
-node -e "console.log(require('crypto').randomBytes(32).toString('base64'))"  # FIELD_ENCRYPTION_KEY
-for S in MONGODB_URI FIELD_ENCRYPTION_KEY SESSION_SECRET; do
-  gcloud secrets create $S --replication-policy=automatic
-done
-# then: printf '%s' "<value>" | gcloud secrets versions add MONGODB_URI --data-file=-
-```
-
-### 5. First deploy (establishes the service config)
-
-```bash
-gcloud run deploy myelotrack \
-  --source . \
-  --region us-east1 \
-  --allow-unauthenticated \
-  --set-env-vars=DATA_BACKEND=mongo,AUTH_REQUIRED=true,RP_ID=<your-domain>,RP_NAME=MyeloTrack,RP_ORIGIN=https://<your-domain>,APP_URL=https://<your-domain>,CORS_ORIGINS=https://<your-domain> \
-  --set-secrets=MONGODB_URI=MONGODB_URI:latest,FIELD_ENCRYPTION_KEY=FIELD_ENCRYPTION_KEY:latest,SESSION_SECRET=SESSION_SECRET:latest
-```
-
-`--allow-unauthenticated` lets the public reach the site; the app's own passkey
-auth (`AUTH_REQUIRED=true`) is what actually gates PHI.
-
-### 6. Domain + TLS
+### Domain + TLS
 
 Map your domain in Cloud Run (`gcloud run domain-mappings create`) or front it
 with a load balancer. TLS certs are managed for you. Set `RP_ID` / `RP_ORIGIN`
@@ -158,8 +121,8 @@ Once the service exists and the first manual deploy has set its config:
 - **Real FHIR sources** — register Epic sandbox apps for MSK + Capital Health,
   then flip to live (the SMART-on-FHIR sync code already exists and is tested).
 - **iOS** — Capacitor wrapper around the same web build → App Store.
-- **Ops** — durable audit-log sink + retention, automated Atlas backups,
-  uptime/error monitoring.
+- **Ops** — audit-log retention and export, CMEK if policy requires,
+  uptime/error monitoring with no PHI in logs.
 
 Done since the first draft: the export/delete-PHI endpoints, and the **GCS
 storage backend** for pallor images — `deploy.sh` sets `STORAGE_BACKEND=gcs`

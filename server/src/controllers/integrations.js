@@ -8,7 +8,8 @@ import {
 } from '../integrations/fhir/smart.js';
 import { syncForConnection } from '../integrations/fhir/sync.js';
 
-const repo = (req) => req.app.locals.repo;
+// The patient-scoped repository, bound by requireAuth (see middleware/auth.js).
+const repo = (req) => req.repo;
 const KNOWN_SOURCES = ['msk', 'capital-health', 'apple-health'];
 const FHIR_SOURCES = ['msk', 'capital-health'];
 

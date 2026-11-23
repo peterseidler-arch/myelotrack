@@ -114,20 +114,28 @@ test('connect → callback → sync pulls and stores labs over FHIR', async () =
   assert.equal((await cbRes.json()).data.status, 'connected');
 
   // Tokens are stored encrypted, never in plaintext.
-  const conn = repo.getConnection('msk');
+  const conn = repo.forUser('user_1').getConnection('msk');
   assert.match(conn.tokens.accessTokenEnc, /^v1:/);
   assert.notEqual(conn.tokens.accessTokenEnc, 'access-xyz');
 
   // 3. sync: real FHIR pull (stubbed bundles) normalizes + upserts labs + meds.
-  const labsBefore = repo.listLabs({ analyte: 'hemoglobin' }).length;
+  const labsBefore = repo.forUser('user_1').listLabs({ analyte: 'hemoglobin' }).length;
   const syncRes = await post('/api/v1/integrations/msk/sync');
   assert.equal(syncRes.status, 200);
   const result = (await syncRes.json()).data;
   assert.equal(result.labs.fetched, 1);
   assert.equal(result.labs.upserted, 1);
   assert.equal(result.medications.upserted, 1);
-  assert.equal(repo.listLabs({ analyte: 'hemoglobin' }).length, labsBefore + 1);
-  assert.ok(repo.listMedications().some((m) => m.name === 'Ruxolitinib 20 mg'));
+  assert.equal(
+    repo.forUser('user_1').listLabs({ analyte: 'hemoglobin' }).length,
+    labsBefore + 1,
+  );
+  assert.ok(
+    repo
+      .forUser('user_1')
+      .listMedications()
+      .some((m) => m.name === 'Ruxolitinib 20 mg'),
+  );
 });
 
 test('callback rejects a mismatched state', async () => {

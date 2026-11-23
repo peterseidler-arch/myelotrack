@@ -9,7 +9,8 @@ export function audit(req, res, next) {
     const repo = req.app.locals.repo;
     if (!repo?.recordAudit) return;
     repo.recordAudit({
-      actor: 'user', // real auth would resolve the principal here
+      userId: req.authUserId || null, // null for public auth routes
+      actor: 'user',
       action: methodToAction(req.method),
       route: `${req.method} ${req.baseUrl}${req.path}`,
       status: res.statusCode,

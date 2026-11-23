@@ -30,7 +30,10 @@ export const config = {
   // hosts the client separately.
   webDir: process.env.WEB_DIR || '',
   dataBackend: process.env.DATA_BACKEND || 'memory',
-  mongoUri: process.env.MONGODB_URI || 'mongodb://localhost:27017/myelotrack',
+  // Postgres connection string (DATA_BACKEND=postgres). On Cloud Run with the
+  // Cloud SQL connector: postgresql://USER:PASS@/DB?host=/cloudsql/PROJECT:REGION:INSTANCE
+  databaseUrl: process.env.DATABASE_URL || '',
+  isProduction: process.env.NODE_ENV === 'production',
   corsOrigins: (process.env.CORS_ORIGINS || 'http://localhost:5173')
     .split(',')
     .map((s) => s.trim())
@@ -52,8 +55,8 @@ export const config = {
     msk: fhirSource('MSK'),
     'capital-health': fhirSource('CAPITAL_HEALTH'),
   },
-  // Passkey (WebAuthn) auth. Off by default so the single-tenant dev/seed
-  // setup keeps working; flip AUTH_REQUIRED=true before serving real PHI.
+  // Passkey (WebAuthn) auth. Off by default so local dev on sample data keeps
+  // working. Production refuses to start without it (see assertSafeToServe).
   auth: {
     required: process.env.AUTH_REQUIRED === 'true',
     rpId: process.env.RP_ID || 'localhost',
@@ -73,3 +76,23 @@ export const isSourceConfigured = (source) => {
   const c = config.fhirSources[source];
   return Boolean(c && c.authorizeUrl && c.tokenUrl && c.clientId && c.redirectUri);
 };
+
+/**
+ * Refuse to start in a configuration that could expose or lose real health
+ * data. In production: sign-in must be on, data must live in Postgres (not the
+ * in-memory sample store), and the session/encryption secrets must be set.
+ * Throws with every problem listed; a no-op outside production.
+ */
+export function assertSafeToServe(c = config) {
+  if (!c.isProduction) return;
+  const problems = [];
+  if (!c.auth.required) problems.push('AUTH_REQUIRED must be true');
+  if (c.dataBackend !== 'postgres') problems.push('DATA_BACKEND must be postgres');
+  if (c.dataBackend === 'postgres' && !c.databaseUrl)
+    problems.push('DATABASE_URL is not set');
+  if (!c.fieldEncryptionKey) problems.push('FIELD_ENCRYPTION_KEY is not set');
+  if (!process.env.SESSION_SECRET) problems.push('SESSION_SECRET is not set');
+  if (problems.length) {
+    throw new Error(`refusing to start in production: ${problems.join('; ')}`);
+  }
+}

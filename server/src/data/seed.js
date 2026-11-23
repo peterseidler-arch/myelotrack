@@ -1,5 +1,5 @@
 /**
- * Seed data for the in-memory backend, shaped to match the MongoDB schema
+ * Seed data for the in-memory backend, shaped to match the API and database schema
  * (see docs/database-schema.md). Fake data only — no real PHI.
  */
 

@@ -13,7 +13,7 @@ aggregation across care teams, and eye-photo pallor tracking.
 ```
 myelotrack/
 ├─ web/       Vite + vanilla-JS client (no framework)
-├─ server/    Express API (in-memory backend by default; MongoDB optional)
+├─ server/    Express API (in-memory backend for dev; PostgreSQL in production)
 ├─ docs/      architecture.md · database-schema.md
 └─ .github/   CI (lint · format · build · test)
 ```
@@ -56,12 +56,14 @@ so use the Vite dev server (or any HTTPS host) rather than opening the file over
 
 The **client** (`web/`) is framework-free vanilla JS behind a Vite build:
 design tokens + component CSS, a tiny observable `store`, a hash-free tab
-router, and one module per view (`today`, `meds`, `labs`, `pallor`). The
+router, and one module per view (`today`, `meds`, `labs`, `pallor`, `risk`, `trends`). The
 **server** (`server/`) is an Express API whose data access hides behind a
 repository interface — an in-memory implementation (default, zero
-dependencies, seeded) and a Mongoose/MongoDB implementation selected by
-`DATA_BACKEND`. The store's fields, the API responses, and the Mongo schema
-all share the same shape, so moving the client from seed data to the live API
+dependencies, seeded) and a PostgreSQL implementation (Cloud SQL in
+production, with row-level security per patient), selected by `DATA_BACKEND`.
+All PHI access goes through `repo.forUser(userId)`, so each signed-in patient
+sees only their own record. The store's fields, the API responses, and the
+database schema all share the same shape, so moving the client from seed data to the live API
 is a data-source swap, not a rewrite. Full detail in
 [`docs/architecture.md`](docs/architecture.md) and
 [`docs/database-schema.md`](docs/database-schema.md).
@@ -80,6 +82,12 @@ is a data-source swap, not a rewrite. Full detail in
 - **Labs** — CBC trends (Hgb, platelets, WBC, ANC, blasts) **aggregated across
   MSK and Capital Health**, every value tagged with its source institution.
 - **Pallor** — conjunctiva eye-photo tracking with camera capture + fallback.
+- **Score** — subtype-aware risk scoring (DIPSS for myelofibrosis,
+  IPSET-thrombosis for ET, PV risk) from the clinical profile and labs.
+- **Trends** — check-in totals and key labs over time.
+- **Sign-in & onboarding** — passkey (WebAuthn) accounts, first-run consent.
+- **Settings** — clinical profile, care-team connections (SMART on FHIR to
+  Epic), and "Your data": export everything or erase it.
 
 ## Progressive web app
 
@@ -92,11 +100,23 @@ without a connection. The service worker is only active in a production build
 
 ## Data sensitivity
 
-Before any real backend serves real data: encryption at rest, encryption in
-transit, append-only audit logging, passwordless/passkey auth, and
-HIPAA-compliant hosting under a signed BAA. The audit middleware and schema are
-scaffolded for this; the hosting and encryption are not implemented here. See
+No real health data until it runs under a signed BAA. In production
+(`NODE_ENV=production`) the server refuses to start unless passkey sign-in is
+on, the backend is Postgres with a role that can't bypass row-level security,
+and the encryption and session secrets are set. See
 `docs/architecture.md` → "Data sensitivity & compliance".
+
+### Running against Postgres locally
+
+```bash
+createuser myelotrack_app --pwprompt          # a normal role, not a superuser
+createdb myelotrack -O myelotrack_app
+DATA_BACKEND=postgres DATABASE_URL=postgres://myelotrack_app:PASS@localhost/myelotrack \
+  npm run dev:server                          # migrations run on start
+
+# Postgres repository tests (skipped unless this is set):
+DATABASE_TEST_URL=postgres://myelotrack_app:PASS@localhost/myelotrack_test npm test
+```
 
 ## License
 
