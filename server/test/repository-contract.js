@@ -233,6 +233,82 @@ export function runRepositoryContract(name, makeRepo) {
     assert.equal(await A.updateMedication('missing', { dose: '1' }), null);
   });
 
+  t(
+    'dose diary: one record per scheduled dose, with amount; window + clear',
+    async () => {
+      const { A, B } = await setup();
+      const med = await A.createMedication({
+        name: 'Examplinib',
+        schedule: { times: ['08:00'] },
+      });
+      const slot = '2026-03-02T13:00:00.000Z';
+      const first = await A.upsertDose(med._id, {
+        scheduledFor: slot,
+        status: 'taken',
+        takenAt: '2026-03-02T13:20:00.000Z',
+        amount: { tablets: 3, mg: 15 },
+      });
+      assert.deepEqual(first.amount, { tablets: 3, mg: 15 });
+      // Same slot again replaces, not duplicates.
+      await A.upsertDose(med._id, {
+        scheduledFor: slot,
+        status: 'skipped',
+        amount: null,
+      });
+      let doses = await A.listDoseLogs();
+      assert.equal(doses.length, 1);
+      assert.equal(doses[0].status, 'skipped');
+      assert.equal(doses[0].takenAt, null);
+      // Other patients can't log against this medication.
+      assert.equal(await B.upsertDose(med._id, { scheduledFor: slot }), null);
+
+      await A.upsertDose(med._id, {
+        scheduledFor: '2026-03-05T13:00:00.000Z',
+        status: 'taken',
+      });
+      doses = await A.listDoseLogs({ from: '2026-03-03T00:00:00.000Z' });
+      assert.equal(doses.length, 1);
+      assert.equal(await A.clearDose(med._id, slot), true);
+      assert.equal(await A.clearDose(med._id, slot), false);
+      assert.equal((await A.listDoseLogs()).length, 1);
+    },
+  );
+
+  t('history includes stopped medications with timestamps', async () => {
+    const { A } = await setup();
+    const med = await A.createMedication({ name: 'Oldmed', schedule: {} });
+    await A.updateMedication(med._id, { active: false, stoppedAt: new Date() });
+    const all = await A.listAllMedications();
+    assert.equal(all.length, 1);
+    assert.equal(all[0].active, false);
+    assert.ok(all[0].createdAt && all[0].updatedAt);
+  });
+
+  t('visit reports: newest first, per patient, erased with the data', async () => {
+    const { A, B } = await setup();
+    await A.createReport({
+      periodStart: new Date('2026-01-01'),
+      periodEnd: new Date('2026-01-15'),
+      recipients: [{ name: 'Dr. Example', email: 'dr@example.org' }],
+      summary: { doses: 10 },
+    });
+    await A.createReport({
+      periodStart: new Date('2026-01-15'),
+      periodEnd: new Date('2026-02-01'),
+    });
+    const reports = await A.listReports();
+    assert.equal(reports.length, 2);
+    assert.equal(
+      new Date(reports[0].periodEnd).toISOString(),
+      '2026-02-01T00:00:00.000Z',
+    );
+    assert.equal(reports[1].recipients[0].email, 'dr@example.org');
+    assert.equal((await B.listReports()).length, 0);
+    const counts = await A.deleteAllData();
+    assert.equal(counts.visitReports, 2);
+    assert.equal((await A.listReports()).length, 0);
+  });
+
   t('audit log records entries per user', async () => {
     const { repo, a } = await setup();
     await repo.recordAudit({

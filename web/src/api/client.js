@@ -61,6 +61,24 @@ export const api = {
     }),
   importMedications: (body) =>
     request('/api/v1/medications/import', { method: 'POST', body: JSON.stringify(body) }),
+  getDoses: (from, to) =>
+    request(
+      `/api/v1/medications/doses?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`,
+    ),
+  putDose: (medId, body) =>
+    request(`/api/v1/medications/${encodeURIComponent(medId)}/doses`, {
+      method: 'PUT',
+      body: JSON.stringify(body),
+    }),
+  clearDose: (medId, scheduledFor) =>
+    request(
+      `/api/v1/medications/${encodeURIComponent(medId)}/doses?scheduledFor=${encodeURIComponent(scheduledFor)}`,
+      { method: 'DELETE' },
+    ),
+  getMedicationHistory: () => request('/api/v1/medications/history'),
+  getReports: () => request('/api/v1/reports'),
+  createReport: (body) =>
+    request('/api/v1/reports', { method: 'POST', body: JSON.stringify(body) }),
   importLabs: (body) =>
     request('/api/v1/labs/import', { method: 'POST', body: JSON.stringify(body) }),
 

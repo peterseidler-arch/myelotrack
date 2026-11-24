@@ -4,6 +4,14 @@ import { nextDoseStatus } from '../data/meds.js';
 import { toast } from './toast.js';
 import { api } from '../api/client.js';
 import { USE_API } from '../config.js';
+import { localDay, slotIso, strengthMg, tabletsPerDose } from '../lib/dose-slots.js';
+
+/** The amount a scheduled dose normally is (from the label), for the record. */
+export function defaultAmount(med) {
+  const tablets = tabletsPerDose(med.instructions);
+  const per = strengthMg(med.dose);
+  return { tablets, mg: per == null ? null : +(tablets * per).toFixed(3) };
+}
 
 /**
  * A round check button for a single scheduled dose. Tapping cycles
@@ -32,8 +40,17 @@ export function makeDoseCheck(dose) {
             ? 'Marked skipped'
             : 'Cleared',
       );
-      if (USE_API && next) {
-        api.logDose(dose.med.id, { status: next }).catch(() => toast('Sync failed'));
+      if (USE_API) {
+        const scheduledFor = slotIso(localDay(), dose.time);
+        const save =
+          next == null
+            ? api.clearDose(dose.med.id, scheduledFor)
+            : api.putDose(dose.med.id, {
+                scheduledFor,
+                status: next,
+                amount: next === 'taken' ? defaultAmount(dose.med) : null,
+              });
+        save.catch(() => toast('Sync failed'));
       }
     },
   });

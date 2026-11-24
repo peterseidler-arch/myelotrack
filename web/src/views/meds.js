@@ -5,6 +5,8 @@ import { makeDoseCheck } from '../ui/dose-check.js';
 import { todaysDoses, todaysAdherence } from '../data/meds.js';
 import { openMedSheet } from '../ui/med-edit.js';
 import { openMedImportSheet } from '../ui/med-import.js';
+import { openTrialDiary } from '../ui/trial-diary.js';
+import { openVisitReport } from '../ui/visit-report.js';
 
 /** One line describing when a medication is taken. */
 function whenText(med) {
@@ -114,6 +116,18 @@ export function renderMeds(container) {
         el('span', { class: 'trial-pill' }, 'Clinical trial'),
         el('span', { class: 'trial-name' }, name),
         cycle ? el('span', { class: 'trial-cycle' }, `${cycle}-day cycles`) : null,
+      ]),
+      el('div', { class: 'trial-actions' }, [
+        el(
+          'button',
+          { class: 'btn small secondary', onclick: () => openTrialDiary(name) },
+          'Dose diary',
+        ),
+        el(
+          'button',
+          { class: 'btn small secondary', onclick: openVisitReport },
+          'Visit report',
+        ),
       ]),
     ]);
     for (const med of meds) card.append(regimenRow(med));

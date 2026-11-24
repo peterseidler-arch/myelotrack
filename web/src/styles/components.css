@@ -1086,3 +1086,96 @@ svg.spark {
 .med-trial-fields[hidden] {
   display: none;
 }
+
+/* Trial diary */
+.trial-actions {
+  display: flex;
+  gap: 8px;
+  padding: 6px 0 10px;
+}
+.diary-nav {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+.diary-when {
+  text-align: center;
+}
+.diary-slot {
+  margin-bottom: 12px;
+}
+.diary-slot-head {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--label-2);
+  padding: 12px 0 4px;
+}
+.diary-row {
+  padding: 10px 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.diary-row + .diary-row {
+  border-top: 0.5px solid var(--hairline);
+}
+.diary-seg {
+  max-width: 260px;
+}
+.diary-details {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  align-items: center;
+}
+.diary-details[hidden] {
+  display: none;
+}
+.diary-inline {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 14px;
+  color: var(--label-2);
+}
+.diary-time {
+  width: 130px;
+  padding: 8px 10px;
+  font-size: 16px;
+}
+.diary-tabs {
+  width: 70px;
+  padding: 8px 10px;
+  font-size: 16px;
+}
+.diary-mg {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--label);
+}
+.diary-cycles {
+  margin: 8px 4px 16px;
+}
+.diary-cycles summary {
+  font-weight: 600;
+  cursor: pointer;
+  padding: 8px 0;
+}
+
+/* Visit report */
+.report-recipient {
+  display: grid;
+  grid-template-columns: 1fr 1.4fr;
+  gap: 8px;
+}
+.report-notes {
+  resize: vertical;
+  min-height: 90px;
+  font: inherit;
+  font-size: 16px;
+}
+.report-preview {
+  margin-bottom: 12px;
+}

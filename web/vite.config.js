@@ -44,7 +44,14 @@ export default defineConfig({
         // pdf.js (≈360 KB) and its worker (≈1.4 MB .mjs, not matched above)
         // load on first MyChart import instead of being precached, so
         // installing the app stays light.
-        globIgnores: ['**/pdf-*.js'],
+        // jsPDF (report PDFs) and its optional html2canvas / DOMPurify /
+        // canvg chunks also load only when a report is made.
+        globIgnores: [
+          '**/pdf-*.js',
+          '**/html2canvas*.js',
+          '**/purify*.js',
+          '**/index.es-*.js',
+        ],
         // API reads: serve from network, fall back to the last cached response
         // when offline so labs/meds/pallor still render.
         runtimeCaching: [

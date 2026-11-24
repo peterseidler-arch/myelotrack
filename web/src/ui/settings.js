@@ -8,6 +8,7 @@ import { SOURCES } from '../data/sources.js';
 import { MPN_SUBTYPES } from '../data/risk.js';
 import { fmtDate } from '../lib/format.js';
 import { getUnits, setUnits } from '../lib/units.js';
+import { openVisitReport } from './visit-report.js';
 
 const FHIR_SOURCES = ['msk', 'capital-health'];
 
@@ -374,6 +375,16 @@ export function openSettingsSheet() {
     renderProfile(sheet);
     renderUnits(sheet);
     renderDataControls(sheet);
+    if (USE_API) {
+      sheet.append(
+        el('h2', {}, 'Care team reports'),
+        el(
+          'button',
+          { class: 'btn secondary', onclick: openVisitReport },
+          'Prepare a visit report',
+        ),
+      );
+    }
     sheet.append(
       el('h2', {}, 'Care teams'),
       el(

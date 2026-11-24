@@ -83,6 +83,14 @@ is a data-source swap, not a rewrite. Full detail in
   medication list (a table with medication / dose / schedule columns; read on
   the device, reviewed before saving). Schedule wording becomes suggested
   dose times.
+- **Clinical trial** — trial drugs grouped and highlighted; a dose diary per
+  trial (cycle / day, taken or missed, time, tablets → mg) in the shape of the
+  study's paper diary.
+- **Visit report** — everything since the last report (trial adherence and
+  missed doses, symptoms, weight, new labs, medication changes, notes),
+  reviewed by the patient, rendered to PDF on the device (with diary pages),
+  and sent from the phone's share sheet. The next report starts where the
+  last one ended.
 - **Labs** — CBC (Hgb, platelets, WBC, ANC, blasts), kidney (creatinine, eGFR,
   BUN, urine albumin/creatinine), liver (AST, ALT), LDH and uric acid trends
   **aggregated across MSK and Capital Health**, every value tagged with its

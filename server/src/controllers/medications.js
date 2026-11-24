@@ -59,7 +59,25 @@ function cleanTrial(t) {
   if (days != null && !(Number.isInteger(days) && days >= 1 && days <= 365)) {
     throw badRequest('trial cycle length must be 1–365 days');
   }
-  return { name: text(t.name, 120) || 'Clinical trial', cycleDays: days };
+  // Cycle history: [{ number, start: 'YYYY-MM-DD' }], newest last.
+  const cycles = Array.isArray(t.cycles) ? t.cycles : [];
+  if (cycles.length > 200) throw badRequest('too many cycles');
+  const cleanCycles = cycles.map((c) => {
+    const number = Number(c?.number);
+    if (!Number.isInteger(number) || number < 1 || number > 999) {
+      throw badRequest('cycle number must be 1–999');
+    }
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(String(c?.start)) || isNaN(Date.parse(c.start))) {
+      throw badRequest('cycle start must be a YYYY-MM-DD date');
+    }
+    return { number, start: c.start };
+  });
+  cleanCycles.sort((a, b) => a.start.localeCompare(b.start));
+  return {
+    name: text(t.name, 120) || 'Clinical trial',
+    cycleDays: days,
+    ...(cleanCycles.length ? { cycles: cleanCycles } : {}),
+  };
 }
 
 /**
@@ -163,4 +181,71 @@ export const importList = asyncHandler(async (req, res) => {
   res.status(201).json({
     data: { added, updated: incoming.length - added, stopped },
   });
+});
+
+// ------------------------------------------------------------- dose diary
+
+const DOSE_STATUS = ['taken', 'skipped', 'missed', 'late'];
+
+function cleanAmount(a) {
+  if (a == null) return null;
+  if (typeof a !== 'object') throw badRequest('amount must be an object');
+  const num = (v, max, what) => {
+    if (v == null || v === '') return null;
+    const n = Number(v);
+    if (!Number.isFinite(n) || n < 0 || n > max)
+      throw badRequest(`${what} is out of range`);
+    return n;
+  };
+  return { tablets: num(a.tablets, 100, 'tablets'), mg: num(a.mg, 100000, 'mg') };
+}
+
+const isoTime = (v, what) => {
+  if (!v || isNaN(Date.parse(v))) throw badRequest(`${what} must be a date-time`);
+  return new Date(v).toISOString();
+};
+
+/** GET /api/v1/medications/doses?from=&to= — dose records in a window. */
+export const listDoses = asyncHandler(async (req, res) => {
+  const { from, to } = req.query;
+  const doses = await repo(req).listDoseLogs({
+    from: from ? isoTime(from, 'from') : undefined,
+    to: to ? isoTime(to, 'to') : undefined,
+  });
+  res.json({ data: doses });
+});
+
+/**
+ * PUT /api/v1/medications/:id/doses — record one scheduled dose (create or
+ * replace): status, when it was actually taken, and how much.
+ */
+export const putDose = asyncHandler(async (req, res) => {
+  const b = req.body || {};
+  const status = b.status || 'taken';
+  if (!DOSE_STATUS.includes(status)) {
+    throw badRequest(`status must be one of: ${DOSE_STATUS.join(', ')}`);
+  }
+  const dose = await repo(req).upsertDose(req.params.id, {
+    scheduledFor: isoTime(b.scheduledFor, 'scheduledFor'),
+    status,
+    takenAt: b.takenAt ? isoTime(b.takenAt, 'takenAt') : undefined,
+    note: text(b.note, 240),
+    amount: cleanAmount(b.amount),
+  });
+  if (!dose) throw badRequest(`unknown medication: ${req.params.id}`);
+  res.json({ data: dose });
+});
+
+/** DELETE /api/v1/medications/:id/doses?scheduledFor= — clear one dose record. */
+export const clearDose = asyncHandler(async (req, res) => {
+  const removed = await repo(req).clearDose(
+    req.params.id,
+    isoTime(req.query.scheduledFor, 'scheduledFor'),
+  );
+  res.json({ data: { removed } });
+});
+
+/** GET /api/v1/medications/history — every medication, including stopped ones. */
+export const history = asyncHandler(async (req, res) => {
+  res.json({ data: await repo(req).listAllMedications() });
 });

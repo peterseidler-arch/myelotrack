@@ -127,3 +127,92 @@ test('import rejects an empty list', async () => {
     400,
   );
 });
+
+test('dose diary over HTTP: put, list window, clear, validation', async () => {
+  const med = await (
+    await call('POST', '/medications', {
+      name: 'Diarymab',
+      schedule: { times: ['08:00'] },
+    })
+  ).json();
+  const id = med.data._id;
+  const slot = '2026-04-01T12:00:00.000Z';
+  let res = await call('PUT', `/medications/${id}/doses`, {
+    scheduledFor: slot,
+    status: 'taken',
+    takenAt: '2026-04-01T12:10:00.000Z',
+    amount: { tablets: 2, mg: 100 },
+  });
+  assert.equal(res.status, 200);
+  assert.deepEqual((await res.json()).data.amount, { tablets: 2, mg: 100 });
+  res = await call(
+    'GET',
+    '/medications/doses?from=2026-04-01T00:00:00Z&to=2026-04-02T00:00:00Z',
+  );
+  const doses = (await res.json()).data.filter((d) => d.medicationId === id);
+  assert.equal(doses.length, 1);
+  assert.equal(
+    (await call('PUT', `/medications/${id}/doses`, { scheduledFor: 'nope' })).status,
+    400,
+  );
+  assert.equal(
+    (
+      await call('PUT', `/medications/${id}/doses`, {
+        scheduledFor: slot,
+        amount: { tablets: -1 },
+      })
+    ).status,
+    400,
+  );
+  res = await call(
+    'DELETE',
+    `/medications/${id}/doses?scheduledFor=${encodeURIComponent(slot)}`,
+  );
+  assert.deepEqual((await res.json()).data, { removed: true });
+});
+
+test('trial cycles are validated and kept in date order', async () => {
+  const res = await call('POST', '/medications', {
+    name: 'Cyclomab',
+    trial: {
+      name: 'Study',
+      cycleDays: 28,
+      cycles: [
+        { number: 2, start: '2026-02-01' },
+        { number: 1, start: '2026-01-04' },
+      ],
+    },
+  });
+  const { data } = await res.json();
+  assert.deepEqual(
+    data.trial.cycles.map((c) => c.number),
+    [1, 2],
+  );
+  const bad = await call('POST', '/medications', {
+    name: 'X',
+    trial: { cycles: [{ number: 1, start: 'Jan 4' }] },
+  });
+  assert.equal(bad.status, 400);
+});
+
+test('reports: record a sent report; list newest first; validation', async () => {
+  let res = await call('POST', '/reports', {
+    periodStart: '2026-01-01T00:00:00Z',
+    periodEnd: '2026-01-20T00:00:00Z',
+    recipients: [{ name: 'Coordinator', email: 'coord@example.org' }],
+    summary: { taken: 40, missed: 2 },
+  });
+  assert.equal(res.status, 201);
+  res = await call('GET', '/reports');
+  const { data } = await res.json();
+  assert.equal(data[0].recipients[0].email, 'coord@example.org');
+  assert.equal(
+    (
+      await call('POST', '/reports', {
+        periodStart: '2026-02-01',
+        periodEnd: '2026-01-01',
+      })
+    ).status,
+    400,
+  );
+});

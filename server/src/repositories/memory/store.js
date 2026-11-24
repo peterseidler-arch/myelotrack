@@ -33,6 +33,7 @@ export function createMemoryRepository({ seed = true } = {}) {
     labResults: [],
     pallorPhotos: [],
     integrationConnections: [],
+    visitReports: [],
   });
 
   if (seed) {
@@ -217,14 +218,29 @@ function createPatientScope(userId, db) {
         const existing = externalId
           ? db.medications.find((x) => x.provenance?.externalId === externalId)
           : null;
-        if (existing) Object.assign(existing, m);
-        else db.medications.push({ _id: m._id || `med_${randomUUID()}`, ...m });
+        const now = new Date();
+        if (existing) Object.assign(existing, m, { updatedAt: now });
+        else {
+          db.medications.push({
+            _id: m._id || `med_${randomUUID()}`,
+            createdAt: now,
+            updatedAt: now,
+            ...m,
+          });
+        }
       }
       return meds.length;
     },
     /** Add one medication (patient-entered). Returns the stored record. */
     createMedication(m) {
-      const record = { _id: `med_${randomUUID()}`, active: true, ...m };
+      const now = new Date();
+      const record = {
+        _id: `med_${randomUUID()}`,
+        active: true,
+        createdAt: now,
+        updatedAt: now,
+        ...m,
+      };
       db.medications.push(record);
       return { ...record };
     },
@@ -232,7 +248,7 @@ function createPatientScope(userId, db) {
     updateMedication(id, patch) {
       const med = db.medications.find((m) => m._id === id);
       if (!med) return null;
-      Object.assign(med, patch);
+      Object.assign(med, patch, { updatedAt: new Date() });
       return { ...med };
     },
     logDose(medicationId, { status, scheduledFor, takenAt, note } = {}) {
@@ -249,10 +265,57 @@ function createPatientScope(userId, db) {
       db.doseLogs.push(record);
       return record;
     },
-    listDoseLogs() {
-      return [...db.doseLogs].sort(
-        (a, b) => new Date(b.scheduledFor) - new Date(a.scheduledFor),
+    /** Every medication, including stopped ones (for change history). */
+    listAllMedications() {
+      return db.medications.map((m) => ({ ...m }));
+    },
+    /**
+     * Create or replace the record for one scheduled dose (medication +
+     * scheduled time). Returns null for an unknown medication.
+     */
+    upsertDose(medicationId, { scheduledFor, status, takenAt, note, amount } = {}) {
+      if (!db.medications.some((m) => m._id === medicationId)) return null;
+      const when = new Date(scheduledFor);
+      const s = status || 'taken';
+      const fields = {
+        status: s,
+        takenAt: s === 'taken' || s === 'late' ? new Date(takenAt || Date.now()) : null,
+        note: note || '',
+        amount: amount ?? null,
+      };
+      const existing = db.doseLogs.find(
+        (d) =>
+          d.medicationId === medicationId &&
+          new Date(d.scheduledFor).getTime() === when.getTime(),
       );
+      if (existing) {
+        Object.assign(existing, fields);
+        return { ...existing };
+      }
+      const record = {
+        _id: `dose_${randomUUID()}`,
+        medicationId,
+        scheduledFor: when,
+        ...fields,
+      };
+      db.doseLogs.push(record);
+      return { ...record };
+    },
+    /** Remove one scheduled dose's record. Returns whether one existed. */
+    clearDose(medicationId, scheduledFor) {
+      const t = new Date(scheduledFor).getTime();
+      const i = db.doseLogs.findIndex(
+        (d) =>
+          d.medicationId === medicationId && new Date(d.scheduledFor).getTime() === t,
+      );
+      if (i < 0) return false;
+      db.doseLogs.splice(i, 1);
+      return true;
+    },
+    listDoseLogs({ from, to } = {}) {
+      return [...db.doseLogs]
+        .filter((d) => inRange(d.scheduledFor, from, to))
+        .sort((a, b) => new Date(b.scheduledFor) - new Date(a.scheduledFor));
     },
 
     // --- Labs ---
@@ -334,6 +397,25 @@ function createPatientScope(userId, db) {
       return conn;
     },
 
+    // --- Visit reports ---
+    listReports() {
+      return [...db.visitReports].sort(
+        (a, b) => new Date(b.periodEnd) - new Date(a.periodEnd),
+      );
+    },
+    createReport({ periodStart, periodEnd, recipients = [], summary = null }) {
+      const record = {
+        _id: `rep_${randomUUID()}`,
+        periodStart: new Date(periodStart),
+        periodEnd: new Date(periodEnd),
+        sentAt: new Date(),
+        recipients,
+        summary,
+      };
+      db.visitReports.push(record);
+      return { ...record };
+    },
+
     // --- Account: export & erasure ---
     /**
      * The patient's full record as plain data, for a "download my data"
@@ -347,6 +429,7 @@ function createPatientScope(userId, db) {
         doseLogs: db.doseLogs,
         labResults: db.labResults,
         pallor: db.pallorPhotos,
+        visitReports: db.visitReports,
         integrations: db.integrationConnections.map((c) => ({
           source: c.source,
           system: c.system,
@@ -369,6 +452,7 @@ function createPatientScope(userId, db) {
         labResults: db.labResults.length,
         pallor: db.pallorPhotos.length,
         integrations: db.integrationConnections.length,
+        visitReports: db.visitReports.length,
       };
       for (const key of Object.keys(db)) db[key].length = 0;
       return counts;

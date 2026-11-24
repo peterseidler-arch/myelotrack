@@ -1,5 +1,6 @@
 import { buildInitialState } from '../data/seed.js';
 import { api } from '../api/client.js';
+import { localDay, dayBounds } from '../lib/dose-slots.js';
 import {
   labsToStore,
   medsToStore,
@@ -55,13 +56,24 @@ function createStore(initialState) {
      * log stay local.
      */
     async hydrate() {
-      const [meds, labs, pallor, symptoms] = await Promise.all([
+      const today = dayBounds(localDay());
+      const [meds, labs, pallor, symptoms, doses] = await Promise.all([
         api.getMedications(),
         api.getLabs(),
         api.getPallor(),
         api.getSymptoms(),
+        api.getDoses(today.from.toISOString(), today.to.toISOString()),
       ]);
       state.medications = medsToStore(meds);
+      // Today's checkmarks come from the saved dose records, so they survive
+      // a refresh and match the trial diary.
+      state.doseLog = {};
+      for (const d of doses) {
+        const t = new Date(d.scheduledFor);
+        const hhmm = `${String(t.getHours()).padStart(2, '0')}:${String(t.getMinutes()).padStart(2, '0')}`;
+        state.doseLog[`${d.medicationId}@${hhmm}`] =
+          d.status === 'taken' ? 'taken' : 'skipped';
+      }
       state.labs = labsToStore(labs);
       state.pallor = pallorToStore(pallor);
       const history = symptomHistoryToStore(symptoms);

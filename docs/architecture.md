@@ -98,6 +98,12 @@ POST   /api/v1/medications             # add one (patient-entered)
 PATCH  /api/v1/medications/:id         # edit, or stop with { active: false }
 POST   /api/v1/medications/import      # save a med list read on the device
 POST   /api/v1/medications/:id/doses   # log a dose (taken / skipped / late)
+PUT    /api/v1/medications/:id/doses   # dose diary: one record per scheduled dose (+ tablets/mg)
+DELETE /api/v1/medications/:id/doses?scheduledFor=   # clear one dose record
+GET    /api/v1/medications/doses?from=&to=   # dose records in a window
+GET    /api/v1/medications/history     # all medications incl. stopped
+GET    /api/v1/reports                 # visit reports sent (newest first)
+POST   /api/v1/reports                 # record an approved, sent report
 GET    /api/v1/labs?analyte=&source=   # aggregated results, filterable
 GET    /api/v1/labs/analytes           # distinct analytes seen
 POST   /api/v1/labs/import             # save results parsed from MyChart PDFs
