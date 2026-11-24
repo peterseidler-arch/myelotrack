@@ -79,6 +79,10 @@ is a data-source swap, not a rewrite. Full detail in
 - **Today** — MPN-SAF TSS daily check-in (10 validated items → 0–100 score
   dial), weight, and today's due meds.
 - **Meds** — per-dose logging (taken/skipped) and rolling adherence.
+- **Meds** — add, edit or stop medications by hand, or import a PDF of a
+  medication list (a table with medication / dose / schedule columns; read on
+  the device, reviewed before saving). Schedule wording becomes suggested
+  dose times.
 - **Labs** — CBC (Hgb, platelets, WBC, ANC, blasts), kidney (creatinine, eGFR,
   BUN, urine albumin/creatinine), liver (AST, ALT), LDH and uric acid trends
   **aggregated across MSK and Capital Health**, every value tagged with its
@@ -92,7 +96,8 @@ is a data-source swap, not a rewrite. Full detail in
 - **Sign-in & onboarding** — email + password or passkey (WebAuthn) accounts,
   first-run consent. Set `ALLOW_SIGNUP=false` to stop new accounts once yours
   exist.
-- **Settings** — sign-in (add/change password, sign out), clinical profile, care-team connections (SMART on FHIR to
+- **Settings** — sign-in (add/change password, sign out), units (lb/kg,
+  °F/°C), clinical profile, care-team connections (SMART on FHIR to
   Epic), and "Your data": export everything or erase it.
 
 ## Progressive web app

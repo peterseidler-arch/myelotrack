@@ -94,6 +94,9 @@ POST   /api/v1/auth/logout
 GET    /api/v1/symptoms?from=&to=      # daily MPN-SAF entries
 POST   /api/v1/symptoms                # create/replace today's entry
 GET    /api/v1/medications             # regimen
+POST   /api/v1/medications             # add one (patient-entered)
+PATCH  /api/v1/medications/:id         # edit, or stop with { active: false }
+POST   /api/v1/medications/import      # save a med list read on the device
 POST   /api/v1/medications/:id/doses   # log a dose (taken / skipped / late)
 GET    /api/v1/labs?analyte=&source=   # aggregated results, filterable
 GET    /api/v1/labs/analytes           # distinct analytes seen

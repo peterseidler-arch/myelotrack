@@ -7,6 +7,7 @@ import { store } from '../state/store.js';
 import { SOURCES } from '../data/sources.js';
 import { MPN_SUBTYPES } from '../data/risk.js';
 import { fmtDate } from '../lib/format.js';
+import { getUnits, setUnits } from '../lib/units.js';
 
 const FHIR_SOURCES = ['msk', 'capital-health'];
 
@@ -87,6 +88,43 @@ function renderProfile(sheet) {
     field(
       'Transfusion-dependent',
       yesNoControl(!!u.transfusionDependent, (v) => set({ transfusionDependent: v })),
+    ),
+  );
+  sheet.append(card);
+}
+
+/** "Units" section — how weight and temperature are shown and entered. */
+function renderUnits(sheet) {
+  const u = getUnits();
+  // Re-render the current tab so the Vitals screen picks up the change.
+  const apply = (patch) => {
+    setUnits(patch);
+    store.commit(() => {});
+  };
+  sheet.append(el('h2', {}, 'Units'));
+  const card = el('div', { class: 'card tight' });
+  card.append(
+    field(
+      'Weight',
+      selectControl(
+        u.weight,
+        [
+          { value: 'lb', label: 'Pounds (lb)' },
+          { value: 'kg', label: 'Kilograms (kg)' },
+        ],
+        (v) => apply({ weight: v }),
+      ),
+    ),
+    field(
+      'Temperature',
+      selectControl(
+        u.temperature,
+        [
+          { value: 'F', label: 'Fahrenheit (°F)' },
+          { value: 'C', label: 'Celsius (°C)' },
+        ],
+        (v) => apply({ temperature: v }),
+      ),
     ),
   );
   sheet.append(card);
@@ -334,6 +372,7 @@ export function openSettingsSheet() {
   openSheet((sheet) => {
     if (USE_API) renderSignIn(sheet);
     renderProfile(sheet);
+    renderUnits(sheet);
     renderDataControls(sheet);
     sheet.append(
       el('h2', {}, 'Care teams'),

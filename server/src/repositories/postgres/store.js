@@ -343,6 +343,72 @@ function createPatientScope(userId, asPatient) {
         return meds.length;
       });
     },
+    /** Add one medication (patient-entered). Returns the stored record. */
+    createMedication(m) {
+      return tx(async (c) => {
+        const { rows } = await c.query(
+          `INSERT INTO medications (user_id, name, brand, dose, form, purpose, schedule,
+             prescriber, active, source, provenance, external_id, started_at)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13) RETURNING *`,
+          [
+            userId,
+            m.name,
+            m.brand || '',
+            m.dose || '',
+            m.form ?? null,
+            m.purpose || '',
+            json(m.schedule || {}),
+            m.prescriber ? json(m.prescriber) : null,
+            m.active ?? true,
+            m.source ?? null,
+            m.provenance ? json(m.provenance) : null,
+            m.provenance?.externalId ?? null,
+            m.startedAt ?? null,
+          ],
+        );
+        return mapMedication(rows[0]);
+      });
+    },
+    /** Patch one medication (active or stopped). Returns it, or null if unknown. */
+    updateMedication(id, patch) {
+      const cols = {
+        name: 'name',
+        brand: 'brand',
+        dose: 'dose',
+        purpose: 'purpose',
+        schedule: 'schedule',
+        prescriber: 'prescriber',
+        active: 'active',
+        stoppedAt: 'stopped_at',
+        provenance: 'provenance',
+      };
+      const sets = [];
+      const params = [userId, id];
+      for (const [key, col] of Object.entries(cols)) {
+        if (!(key in patch)) continue;
+        let v = patch[key];
+        if (key === 'schedule' || key === 'provenance' || key === 'prescriber') {
+          v = v == null ? null : json(v);
+        }
+        params.push(v);
+        sets.push(`${col} = $${params.length}`);
+      }
+      return tx(async (c) => {
+        if (!sets.length) {
+          const { rows } = await c.query(
+            'SELECT * FROM medications WHERE user_id = $1 AND id = $2',
+            [userId, id],
+          );
+          return rows[0] ? mapMedication(rows[0]) : null;
+        }
+        const { rows } = await c.query(
+          `UPDATE medications SET ${sets.join(', ')}, updated_at = now()
+           WHERE user_id = $1 AND id = $2 RETURNING *`,
+          params,
+        );
+        return rows[0] ? mapMedication(rows[0]) : null;
+      });
+    },
     logDose(medicationId, { status, scheduledFor, takenAt, note } = {}) {
       return tx(async (c) => {
         const med = await c.query(

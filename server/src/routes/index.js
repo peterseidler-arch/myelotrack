@@ -33,6 +33,9 @@ export function apiRouter() {
   r.post('/symptoms', symptoms.create);
 
   r.get('/medications', medications.list);
+  r.post('/medications', medications.create);
+  r.post('/medications/import', medications.importList);
+  r.patch('/medications/:id', medications.update);
   r.post('/medications/:id/doses', medications.logDose);
 
   r.get('/labs/analytes', labs.analytes);

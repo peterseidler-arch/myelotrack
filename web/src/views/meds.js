@@ -3,6 +3,19 @@ import { store } from '../state/store.js';
 import { prettyTime } from '../lib/format.js';
 import { makeDoseCheck } from '../ui/dose-check.js';
 import { todaysDoses, todaysAdherence } from '../data/meds.js';
+import { openMedSheet } from '../ui/med-edit.js';
+import { openMedImportSheet } from '../ui/med-import.js';
+
+/** One line describing when a medication is taken. */
+function whenText(med) {
+  const parts = [];
+  if (med.times.length) {
+    parts.push(`${med.times.length}×/day · ${med.times.map(prettyTime).join(', ')}`);
+  }
+  if (med.asNeeded) parts.push('as needed');
+  if (!parts.length) parts.push(med.instructions || 'No set times');
+  return parts.join(' · ');
+}
 
 /** Render the Meds tab: today's progress, scheduled doses, and full regimen. */
 export function renderMeds(container) {
@@ -61,22 +74,58 @@ export function renderMeds(container) {
     container.append(card);
   }
 
-  // --- Full regimen ---
+  // --- Full regimen: tap a medication to edit or stop it ---
   container.append(el('div', { class: 'section-title' }, 'Regimen'));
+  container.append(
+    el('div', { class: 'med-actions' }, [
+      el('button', { class: 'btn secondary', onclick: () => openMedSheet() }, '+ Add'),
+      el(
+        'button',
+        { class: 'btn secondary', onclick: openMedImportSheet },
+        'Import list (PDF)',
+      ),
+    ]),
+  );
+  if (!state.medications.length) {
+    container.append(
+      el(
+        'div',
+        { class: 'empty' },
+        'No medications yet. Add them one at a time, or import a PDF of your medication list.',
+      ),
+    );
+    return;
+  }
   const regimen = el('div', { class: 'card tight' });
   for (const med of state.medications) {
     regimen.append(
-      el('div', { class: 'row' }, [
-        el('div', { class: 'grow' }, [
-          el('div', { class: 'title' }, `${med.name} ${med.dose}`),
-          el(
-            'div',
-            { class: 'sub' },
-            `${med.times.length}×/day · ${med.times.map(prettyTime).join(', ')}`,
-          ),
-        ]),
-        el('span', { class: 'chevron' }, '›'),
-      ]),
+      el(
+        'button',
+        {
+          class: 'row row-button',
+          type: 'button',
+          onclick: () => openMedSheet(med),
+          'aria-label': `Edit ${med.name}`,
+        },
+        [
+          el('div', { class: 'grow' }, [
+            el(
+              'div',
+              { class: 'title' },
+              `${med.name}${med.brand ? ` · ${med.brand}` : ''} ${med.dose}`,
+            ),
+            el('div', { class: 'sub' }, whenText(med)),
+            med.prescriber || med.purpose
+              ? el(
+                  'div',
+                  { class: 'sub' },
+                  [med.purpose, med.prescriber].filter(Boolean).join(' · '),
+                )
+              : null,
+          ]),
+          el('span', { class: 'chevron' }, '›'),
+        ],
+      ),
     );
   }
   container.append(regimen);

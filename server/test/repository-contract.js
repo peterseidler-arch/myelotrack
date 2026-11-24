@@ -203,6 +203,30 @@ export function runRepositoryContract(name, makeRepo) {
     assert.equal(await repo.getPasswordLogin(email), null);
   });
 
+  t('medications: create, update, stop, scoped per patient', async () => {
+    const { A, B } = await setup();
+    const med = await A.createMedication({
+      name: 'Examplamab',
+      dose: '10 mg',
+      schedule: { times: ['08:00'] },
+      prescriber: { name: 'Dr. Example' },
+      source: 'self',
+      provenance: { system: 'manual' },
+    });
+    assert.ok(med._id);
+    assert.equal(med.active, true);
+    assert.equal(await B.updateMedication(med._id, { dose: 'x' }), null);
+
+    const edited = await A.updateMedication(med._id, { dose: '20 mg' });
+    assert.equal(edited.dose, '20 mg');
+    assert.equal(edited.name, 'Examplamab');
+    assert.equal(edited.prescriber.name, 'Dr. Example');
+
+    await A.updateMedication(med._id, { active: false, stoppedAt: new Date() });
+    assert.equal((await A.listMedications()).length, 0);
+    assert.equal(await A.updateMedication('missing', { dose: '1' }), null);
+  });
+
   t('audit log records entries per user', async () => {
     const { repo, a } = await setup();
     await repo.recordAudit({

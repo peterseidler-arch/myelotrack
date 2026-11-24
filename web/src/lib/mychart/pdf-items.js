@@ -1,5 +1,5 @@
 /**
- * Flatten a PDF's text into positioned items for parse.js: `{ str, x, y }` in
+ * Flatten a PDF's text into positioned items for parse.js: `{ str, x, y, w }` in
  * points, `y` top-down and accumulated across pages so a component that
  * straddles a page break still reads in order.
  *
@@ -25,6 +25,7 @@ export async function readPdfItems(pdfjs, data) {
         items.push({
           str: it.str,
           x: it.transform[4],
+          w: it.width, // text run width in points (used by the med-list parser)
           y: offset + (height - it.transform[5]),
         });
       }

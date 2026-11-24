@@ -52,6 +52,15 @@ export const api = {
     request('/api/v1/pallor', { method: 'POST', body: JSON.stringify(body) }),
   uploadPallor: (formData) =>
     request('/api/v1/pallor', { method: 'POST', body: formData }),
+  createMedication: (body) =>
+    request('/api/v1/medications', { method: 'POST', body: JSON.stringify(body) }),
+  updateMedication: (id, body) =>
+    request(`/api/v1/medications/${encodeURIComponent(id)}`, {
+      method: 'PATCH',
+      body: JSON.stringify(body),
+    }),
+  importMedications: (body) =>
+    request('/api/v1/medications/import', { method: 'POST', body: JSON.stringify(body) }),
   importLabs: (body) =>
     request('/api/v1/labs/import', { method: 'POST', body: JSON.stringify(body) }),
 

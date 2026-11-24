@@ -55,6 +55,9 @@ export function medsToStore(apiMeds) {
     dose: m.dose || '',
     purpose: m.purpose || '',
     times: m.schedule?.times || [],
+    asNeeded: Boolean(m.schedule?.asNeeded),
+    instructions: m.schedule?.instructions || '',
+    prescriber: m.prescriber?.name || '',
   }));
 }
 

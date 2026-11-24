@@ -936,3 +936,109 @@ svg.spark {
   min-height: 18px;
   margin-top: 12px;
 }
+
+/* Meds: add / import / edit */
+.med-actions {
+  display: flex;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+.med-actions .btn {
+  padding: 11px;
+  font-size: 15px;
+}
+.row-button {
+  width: 100%;
+  background: none;
+  border: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.med-form {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.med-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.med-field > span {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--label-2);
+  padding: 0 4px;
+}
+.med-form .auth-input,
+.med-times-input {
+  font-size: 16px;
+  padding: 11px 14px;
+}
+.med-times {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  align-items: flex-start;
+}
+.med-time-row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+.med-time {
+  width: 140px;
+}
+.med-option {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  font-size: 14px;
+  color: var(--label-2);
+  line-height: 1.4;
+}
+.med-option span {
+  flex: 1;
+  min-width: 0;
+}
+.med-option input {
+  margin-top: 3px;
+  width: 18px;
+  height: 18px;
+  flex: none;
+}
+.med-form .err {
+  color: var(--red);
+  font-size: 13px;
+}
+.med-review-row {
+  align-items: flex-start;
+}
+.med-review-row input[type='checkbox'] {
+  width: 20px;
+  height: 20px;
+  margin-top: 2px;
+  flex: none;
+}
+.med-times-input {
+  margin-top: 8px;
+  width: 100%;
+}
+.med-times-input.invalid {
+  outline: 2px solid var(--red);
+}
+
+/* Weight: typed number + unit */
+.weight-field {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--label-2);
+}
+.weight-input {
+  min-width: 0;
+  width: 110px;
+  text-align: right;
+}

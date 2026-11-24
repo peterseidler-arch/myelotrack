@@ -222,6 +222,19 @@ function createPatientScope(userId, db) {
       }
       return meds.length;
     },
+    /** Add one medication (patient-entered). Returns the stored record. */
+    createMedication(m) {
+      const record = { _id: `med_${randomUUID()}`, active: true, ...m };
+      db.medications.push(record);
+      return { ...record };
+    },
+    /** Patch one medication (active or stopped). Returns it, or null if unknown. */
+    updateMedication(id, patch) {
+      const med = db.medications.find((m) => m._id === id);
+      if (!med) return null;
+      Object.assign(med, patch);
+      return { ...med };
+    },
     logDose(medicationId, { status, scheduledFor, takenAt, note } = {}) {
       const med = db.medications.find((m) => m._id === medicationId);
       if (!med) return null;
