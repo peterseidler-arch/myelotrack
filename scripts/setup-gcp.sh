@@ -119,6 +119,13 @@ if [ -z "$PRIVATE_IP" ]; then
 fi
 echo "  private IP $PRIVATE_IP"
 
+echo "▸ Letting Cloud Build build the image as the default compute service account…"
+# Newer projects no longer give that account Editor, so source deploys fail
+# with "does not have storage.objects.get access" on the run-sources bucket.
+gcloud projects add-iam-policy-binding "$PROJECT_ID" \
+  --member="serviceAccount:${RUNTIME_SA}" --role="roles/cloudbuild.builds.builder" \
+  --condition=None >/dev/null
+
 echo "▸ Granting the runtime service account Cloud SQL + secret access…"
 gcloud projects add-iam-policy-binding "$PROJECT_ID" \
   --member="serviceAccount:${RUNTIME_SA}" --role="roles/cloudsql.client" \
