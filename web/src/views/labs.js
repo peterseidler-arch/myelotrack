@@ -4,6 +4,16 @@ import { fmtDate, formatVal } from '../lib/format.js';
 import { lineChart } from '../lib/charts.js';
 import { SOURCES } from '../data/sources.js';
 import { labFlag, flagWord } from '../data/labs.js';
+import { ANALYTES, refText } from '../data/analytes.js';
+import { USE_API } from '../config.js';
+import { openLabImportSheet } from '../ui/lab-import.js';
+
+const importButton = () =>
+  el(
+    'button',
+    { class: 'btn secondary', style: 'margin-bottom:14px', onclick: openLabImportSheet },
+    'Import from MyChart',
+  );
 
 // UI-only selection state (which analyte is shown); persists across re-renders.
 let activeAnalyte = 'hemoglobin';
@@ -13,22 +23,28 @@ export function renderLabs(container) {
   const { labs } = store.state;
   clear(container);
 
-  const analyteKeys = Object.keys(labs);
+  // Catalog order (counts, kidney, liver, turnover); unknown analytes last.
+  const order = Object.keys(ANALYTES);
+  const rank = (k) => (order.includes(k) ? order.indexOf(k) : order.length);
+  const analyteKeys = Object.keys(labs).sort((a, b) => rank(a) - rank(b));
   if (analyteKeys.length === 0) {
     container.append(
       el(
         'div',
         { class: 'empty' },
-        'No lab results yet — connect a care team to sync labs.',
+        'No lab results yet — import MyChart PDFs or connect a care team.',
       ),
+      importButton(),
     );
     return;
   }
   if (!labs[activeAnalyte]) activeAnalyte = analyteKeys[0];
 
+  container.append(importButton());
+
   // --- Analyte chips ---
   const tabs = el('div', { class: 'lab-tabs' });
-  for (const key of Object.keys(labs)) {
+  for (const key of analyteKeys) {
     tabs.append(
       el(
         'button',
@@ -47,7 +63,7 @@ export function renderLabs(container) {
 
   const analyte = labs[activeAnalyte];
   const last = analyte.series[analyte.series.length - 1];
-  const flag = labFlag(labs, activeAnalyte, last.value);
+  const flag = labFlag(labs, activeAnalyte, last.value, last);
 
   // --- Headline value + chart ---
   const card = el('div', { class: 'card' });
@@ -62,7 +78,7 @@ export function renderLabs(container) {
           {},
           activeAnalyte === 'blasts'
             ? 'ref 0%'
-            : `ref ${analyte.refLow}–${analyte.refHigh}`,
+            : refText(analyte.refLow, analyte.refHigh),
         ),
       ]),
     ]),
@@ -104,7 +120,7 @@ export function renderLabs(container) {
   container.append(el('div', { class: 'section-title' }, 'All results'));
   const list = el('div', { class: 'card tight' });
   for (const point of [...analyte.series].reverse()) {
-    const pointFlag = labFlag(labs, activeAnalyte, point.value);
+    const pointFlag = labFlag(labs, activeAnalyte, point.value, point);
     list.append(
       el('div', { class: 'row' }, [
         el('div', { class: 'grow' }, [
@@ -142,7 +158,10 @@ export function renderLabs(container) {
     el(
       'p',
       { class: 'disclaimer' },
-      'Reference ranges are lab-provided and vary by institution. Values here are seeded sample data.',
+      'Reference ranges are lab-provided and vary by institution; each result is flagged against its own lab’s range.' +
+        (USE_API
+          ? ''
+          : ' Offline mode: values are sample data, and imports last until you refresh.'),
     ),
   );
 }

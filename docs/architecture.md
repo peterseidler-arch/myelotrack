@@ -87,6 +87,7 @@ GET    /api/v1/medications             # regimen
 POST   /api/v1/medications/:id/doses   # log a dose (taken / skipped / late)
 GET    /api/v1/labs?analyte=&source=   # aggregated results, filterable
 GET    /api/v1/labs/analytes           # distinct analytes seen
+POST   /api/v1/labs/import             # save results parsed from MyChart PDFs
 GET    /api/v1/pallor                  # photo entries (metadata + signed URLs)
 POST   /api/v1/pallor                  # upload a new photo (multipart → object store)
 GET    /api/v1/integrations/:source/connect   # begin SMART auth → { authorizeUrl }
@@ -129,7 +130,27 @@ MSK runs Epic. Patient-facing access is via **SMART on FHIR** using the
 Auth is the SMART standalone-launch OAuth2 flow (PKCE), refresh-token backed.
 LOINC codes drive analyte mapping (e.g. Hemoglobin `718-7`, Platelets `777-3`,
 Leukocytes `6690-2`, Neutrophils absolute `751-8`, Blasts/100 leukocytes
-`709-7`). We store the raw LOINC alongside our internal analyte key.
+`709-7`, Creatinine `2160-0`, eGFR `98979-8`, BUN `3094-0`, AST `1920-8`, ALT
+`1742-6`, LDH `2532-0`, Uric acid `3084-1`, Urine albumin/creatinine `9318-7`).
+We store the raw LOINC alongside our internal analyte key. The analyte
+catalog lives in `web/src/data/analytes.js`, mirrored by
+`server/src/data/analytes.js` (a test keeps them in sync).
+
+#### MyChart PDF import (works today, no API access needed)
+
+Until SMART on FHIR is live, results come in from MyChart printouts: the
+"Test Details" page for a panel (CBC, CMP, …) and the "Result Trends" page for
+one test's history. The PDF is read **in the browser** with pdf.js
+(`web/src/lib/mychart/`) — its bytes never leave the device — and only the
+parsed values go to `POST /api/v1/labs/import`. Every result keeps its own
+lab-printed reference range, so flags match what MyChart showed.
+
+The server owns everything derived (unit, LOINC, flag) and the dedup key,
+`mychart:<source>:<analyte>:<YYYY-MM-DD>` in `provenance.externalId`: one draw
+per test per care team per day. Re-importing a printout is a no-op, and a
+date-only Trends row never overwrites a draw already stored with its exact
+collection time. Components MyeloTrack doesn't track, and values printed in an
+unexpected unit, are skipped rather than guessed at.
 
 #### Capital Health — Epic FHIR R4
 

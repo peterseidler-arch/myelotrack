@@ -19,8 +19,15 @@ export function lineChart(analyte, analyteKey) {
   const values = points.map((p) => p.value);
   const isBlasts = analyteKey === 'blasts';
 
-  let min = Math.min(...values, analyte.refLow);
-  let max = Math.max(...values, analyte.refHigh);
+  // Reference bounds may be one-sided ("≤ 37") — a missing bound is null.
+  const hasLow = Number.isFinite(analyte.refLow);
+  const hasHigh = Number.isFinite(analyte.refHigh);
+  const bounds = [hasLow && analyte.refLow, hasHigh && analyte.refHigh].filter(
+    (b) => b !== false,
+  );
+  let min = Math.min(...values, ...bounds);
+  let max = Math.max(...values, ...bounds);
+  if (!hasLow) min = Math.min(min, 0);
   if (isBlasts) {
     min = 0;
     max = Math.max(6, Math.max(...values) + 1);
@@ -53,15 +60,17 @@ export function lineChart(analyte, analyteKey) {
       'stroke-width': 1,
       'stroke-dasharray': '4 4',
     });
-  } else {
+  } else if (hasLow || hasHigh) {
+    const bandTop = hasHigh ? y(analyte.refHigh) : 0;
+    const bandBottom = hasLow ? y(analyte.refLow) : H;
     add('rect', {
       x: 0,
-      y: y(analyte.refHigh),
+      y: bandTop,
       width: W,
-      height: Math.max(0, y(analyte.refLow) - y(analyte.refHigh)),
+      height: Math.max(0, bandBottom - bandTop),
       fill: 'rgba(48,209,88,0.10)',
     });
-    for (const rv of [analyte.refLow, analyte.refHigh]) {
+    for (const rv of bounds) {
       add('line', {
         x1: 0,
         x2: W,

@@ -45,6 +45,8 @@ export const api = {
     request('/api/v1/pallor', { method: 'POST', body: JSON.stringify(body) }),
   uploadPallor: (formData) =>
     request('/api/v1/pallor', { method: 'POST', body: formData }),
+  importLabs: (body) =>
+    request('/api/v1/labs/import', { method: 'POST', body: JSON.stringify(body) }),
 
   // Account (export / erasure)
   // The export is a file download, so callers fetch this URL directly (with

@@ -1,4 +1,5 @@
 import { daysAgo } from '../lib/format.js';
+import { rangeFlag } from './analytes.js';
 
 /**
  * CBC-centric lab analytes, each with a reference range, LOINC code, and a
@@ -89,16 +90,18 @@ export const latestDraw = (labs, analyte) => {
   return series[series.length - 1];
 };
 
-/** Clinical flag for a value against its analyte's reference range. */
-export function labFlag(labs, analyte, value) {
+/**
+ * Clinical flag for a value. Uses the draw's own lab-provided range when it has
+ * one (`point.refLow/refHigh`), else the analyte's default range.
+ */
+export function labFlag(labs, analyte, value, point) {
   if (analyte === 'blasts') {
     if (value <= 0) return 'normal';
     return value >= 5 ? 'critical' : 'high';
   }
-  const { refLow, refHigh } = labs[analyte];
-  if (value < refLow) return 'low';
-  if (value > refHigh) return 'high';
-  return 'normal';
+  const hasOwnRange = point && (point.refLow != null || point.refHigh != null);
+  const { refLow, refHigh } = hasOwnRange ? point : labs[analyte];
+  return rangeFlag(value, refLow, refHigh);
 }
 
 /** Human label for a flag. */

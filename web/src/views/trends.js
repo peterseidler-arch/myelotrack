@@ -2,6 +2,7 @@ import { el, clear } from '../lib/dom.js';
 import { store } from '../state/store.js';
 import { lineChart, sparkline } from '../lib/charts.js';
 import { symptomBand } from '../data/symptoms.js';
+import { refText } from '../data/analytes.js';
 
 /** A small stat tile (value over a label). */
 function statTile(label, value) {
@@ -69,7 +70,7 @@ export function renderTrends(container) {
       el('div', { class: 'chart-val' }, [
         el('span', { class: 'big' }, String(last.value)),
         el('span', { class: 'unit' }, hgb.unit),
-        el('span', { class: 'rng' }, `ref ${hgb.refLow}–${hgb.refHigh}`),
+        el('span', { class: 'rng' }, refText(hgb.refLow, hgb.refHigh)),
       ]),
       lineChart(hgb, 'hemoglobin'),
     );

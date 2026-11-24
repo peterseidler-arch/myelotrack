@@ -1,5 +1,6 @@
 import { pallorSwatch } from '../lib/pallor-image.js';
 import { API_BASE } from '../config.js';
+import { ANALYTES, analyteLabel } from '../data/analytes.js';
 
 /**
  * Map API response shapes onto the client store's shapes. The API returns
@@ -9,37 +10,38 @@ import { API_BASE } from '../config.js';
  * format.
  */
 
-// Presentation labels for known analytes (the API carries units/ranges, not
-// display names). Unknown analytes fall back to their key.
-const ANALYTE_LABELS = {
-  hemoglobin: 'Hemoglobin',
-  hematocrit: 'Hematocrit',
-  platelets: 'Platelets',
-  wbc: 'WBC',
-  anc: 'ANC',
-  blasts: 'Peripheral blasts',
-};
-
-/** Group a flat array of lab results into the `{ analyte: {…, series} }` shape. */
+/**
+ * Group a flat array of lab results into the `{ analyte: {…, series} }` shape.
+ * Each draw keeps its own lab-provided range; the analyte's headline range is
+ * the most recent draw's (falling back to the catalog default).
+ */
 export function labsToStore(apiLabs) {
   const byAnalyte = {};
   for (const row of apiLabs) {
+    const meta = ANALYTES[row.analyte] || {};
     const group = (byAnalyte[row.analyte] ||= {
-      label: ANALYTE_LABELS[row.analyte] || row.analyte,
-      unit: row.unit,
-      refLow: row.refLow,
-      refHigh: row.refHigh,
-      loinc: row.loinc,
+      label: analyteLabel(row.analyte),
+      unit: row.unit || meta.unit || '',
+      refLow: meta.refLow ?? null,
+      refHigh: meta.refHigh ?? null,
+      loinc: row.loinc || meta.loinc,
       series: [],
     });
     group.series.push({
       collectedAt: new Date(row.collectedAt),
       value: row.value,
       source: row.source,
+      refLow: row.refLow ?? null,
+      refHigh: row.refHigh ?? null,
     });
   }
   for (const group of Object.values(byAnalyte)) {
     group.series.sort((a, b) => a.collectedAt - b.collectedAt);
+    const last = group.series[group.series.length - 1];
+    if (last.refLow != null || last.refHigh != null) {
+      group.refLow = last.refLow;
+      group.refHigh = last.refHigh;
+    }
   }
   return byAnalyte;
 }

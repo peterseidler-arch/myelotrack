@@ -1,4 +1,4 @@
-import { computeFlag } from '../../data/seed.js';
+import { computeFlag } from '../../data/analytes.js';
 
 /**
  * SMART on FHIR (Epic R4) integration scaffold.
@@ -18,6 +18,17 @@ export const LOINC_TO_ANALYTE = {
   '6690-2': 'wbc',
   '751-8': 'anc',
   '709-7': 'blasts',
+  '2160-0': 'creatinine',
+  '98979-8': 'egfr', // CKD-EPI 2021 (race-free)
+  '62238-1': 'egfr', // CKD-EPI (older reports)
+  '3094-0': 'bun',
+  '9318-7': 'uacr',
+  '14959-1': 'uacr', // microalbumin/creatinine
+  '1920-8': 'ast',
+  '1742-6': 'alt',
+  '2532-0': 'ldh',
+  '14804-9': 'ldh', // LDH, lactate → pyruvate reaction
+  '3084-1': 'uricAcid',
 };
 
 /**
@@ -45,7 +56,7 @@ export function normalizeObservation(obs, source) {
     unit: obs.valueQuantity.unit || '',
     refLow,
     refHigh,
-    flag: computeFlag(analyte, value),
+    flag: computeFlag(analyte, value, { refLow, refHigh }),
     collectedAt: obs.effectiveDateTime ? new Date(obs.effectiveDateTime) : null,
     reportedAt: obs.issued ? new Date(obs.issued) : null,
     source,
