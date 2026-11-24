@@ -57,7 +57,8 @@ Use a dedicated app role (`scripts/setup-gcp.sh` creates `myelotrack_app`).
 | `created_at`   | timestamptz |                            |
 | `updated_at`   | timestamptz |                            |
 
-Deliberately minimal: an account is a random id plus its passkeys. Clinical
+Deliberately minimal: an account is a random id plus its passkeys and/or one
+email + password login. Clinical
 profile fields belong in a future PHI table, not here.
 
 ### `passkey_credentials`
@@ -72,6 +73,20 @@ credentials, so the server learns _who_ is signing in from the credential id.
 | `public_key` | text    | COSE public key (base64url)  |
 | `counter`    | bigint  | signature counter            |
 | `transports` | jsonb   | e.g. `["internal","hybrid"]` |
+
+### `password_logins`
+
+At most one per user. The email is stored normalized (trimmed, lowercased) and
+is unique across accounts. Only an scrypt hash is stored
+(`scrypt$N$r$p$salt$hash`), never the password.
+
+| column          | type        | notes                          |
+| --------------- | ----------- | ------------------------------ |
+| `user_id`       | text PK, FK | → `users.id`, cascade          |
+| `email`         | text UNIQUE | normalized                     |
+| `password_hash` | text        | scrypt, parameters in the hash |
+| `created_at`    | timestamptz |                                |
+| `updated_at`    | timestamptz |                                |
 
 ### `auth_challenges`
 
@@ -202,6 +217,7 @@ Retention and export to long-term storage are a later ops task.
 
 ```
 users ─┬─< passkey_credentials
+       ├── password_logins (0..1)
        ├─< auth_challenges
        ├─< symptom_entries
        ├─< medications ─< dose_logs

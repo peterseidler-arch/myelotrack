@@ -18,7 +18,14 @@ async function request(path, options = {}) {
     },
   });
   if (!res.ok) {
-    throw new Error(`${options.method || 'GET'} ${path} → ${res.status}`);
+    const err = new Error(`${options.method || 'GET'} ${path} → ${res.status}`);
+    err.status = res.status;
+    // The server's human-readable reason, when it sent one (shown on auth forms).
+    err.serverMessage = await res
+      .json()
+      .then((b) => b?.message || '')
+      .catch(() => '');
+    throw err;
   }
   if (res.status === 204) return null;
   const body = await res.json();
@@ -60,7 +67,7 @@ export const api = {
   syncSource: (source) =>
     request(`/api/v1/integrations/${source}/sync`, { method: 'POST' }),
 
-  // Auth (passkeys)
+  // Auth (passkeys, or email + password)
   authMe: () => request('/api/v1/auth/me'),
   authLogout: () => request('/api/v1/auth/logout', { method: 'POST' }),
   registrationOptions: () => request('/api/v1/auth/registration/options'),
@@ -70,6 +77,18 @@ export const api = {
       body: JSON.stringify(attestation),
     }),
   authenticationOptions: () => request('/api/v1/auth/authentication/options'),
+  passwordSignup: (email, password) =>
+    request('/api/v1/auth/password/signup', {
+      method: 'POST',
+      body: JSON.stringify({ email, password }),
+    }),
+  passwordLogin: (email, password) =>
+    request('/api/v1/auth/password/login', {
+      method: 'POST',
+      body: JSON.stringify({ email, password }),
+    }),
+  setPassword: (body) =>
+    request('/api/v1/auth/password', { method: 'PUT', body: JSON.stringify(body) }),
   authenticationVerify: (assertion) =>
     request('/api/v1/auth/authentication/verify', {
       method: 'POST',

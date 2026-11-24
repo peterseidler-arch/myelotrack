@@ -178,6 +178,31 @@ export function runRepositoryContract(name, makeRepo) {
     assert.equal(await repo.consumeChallenge('ch-2', 'registration'), null);
   });
 
+  t('password logins: one per user, unique email, removed with the user', async () => {
+    const { repo, a, b } = await setup();
+    const email = `pw-${a}@example.com`;
+    await repo.setPasswordLogin(a, { email, passwordHash: 'h1' });
+    assert.deepEqual(await repo.getPasswordLogin(email), {
+      userId: a,
+      email,
+      passwordHash: 'h1',
+    });
+    // Replacing keeps one login per user.
+    await repo.setPasswordLogin(a, { email, passwordHash: 'h2' });
+    assert.equal((await repo.getPasswordLoginForUser(a)).passwordHash, 'h2');
+    assert.equal(await repo.getPasswordLoginForUser(b), null);
+    assert.ok((await repo.countPasswordLogins()) >= 1);
+
+    await assert.rejects(
+      async () => repo.setPasswordLogin(b, { email, passwordHash: 'h3' }),
+      (err) => err.code === 'EMAIL_TAKEN',
+    );
+    assert.equal(await repo.getPasswordLogin('nobody@example.com'), null);
+
+    await repo.deleteUser(a);
+    assert.equal(await repo.getPasswordLogin(email), null);
+  });
+
   t('audit log records entries per user', async () => {
     const { repo, a } = await setup();
     await repo.recordAudit({

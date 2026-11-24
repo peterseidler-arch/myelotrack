@@ -92,7 +92,7 @@ export function buildSeed() {
   return {
     user: {
       _id: 'user_1',
-      displayName: 'Peter Seidler',
+      displayName: 'Sample Patient',
       condition: { primary: 'myelofibrosis', icd10: ['D47.4'], notes: 'MDS overlap' },
       careTeams: [
         { key: 'msk', name: 'Memorial Sloan Kettering' },

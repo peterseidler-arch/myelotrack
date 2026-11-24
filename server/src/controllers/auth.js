@@ -5,7 +5,7 @@ import {
   generateAuthenticationOptions,
   verifyAuthenticationResponse,
 } from '@simplewebauthn/server';
-import { asyncHandler, badRequest } from '../lib/async-handler.js';
+import { asyncHandler, badRequest, httpError } from '../lib/async-handler.js';
 import { config } from '../config/index.js';
 import { issueSession, verifySession } from '../lib/session.js';
 import {
@@ -41,14 +41,25 @@ export const me = asyncHandler(async (req, res) => {
   const userId = sessionUser(req);
   // hasCredentials drives the gate's default button. Signed out, it reports
   // whether any account exists on this server (sign in vs. first-run sign up).
-  const hasCredentials = userId
-    ? (await repo(req).listCredentials(userId)).length > 0
-    : (await repo(req).countCredentials()) > 0;
+  // Either kind of login counts: a passkey or an email + password.
+  const r = repo(req);
+  let hasCredentials;
+  let email = null;
+  if (userId) {
+    const login = await r.getPasswordLoginForUser(userId);
+    email = login?.email ?? null;
+    hasCredentials = Boolean(login) || (await r.listCredentials(userId)).length > 0;
+  } else {
+    hasCredentials = (await r.countCredentials()) + (await r.countPasswordLogins()) > 0;
+  }
   res.json({
     data: {
       authenticated: Boolean(userId),
       required: config.auth.required,
       hasCredentials,
+      // Signed in: the email on the account's password login, if it has one.
+      email,
+      signupOpen: config.auth.allowSignup,
     },
   });
 });
@@ -66,6 +77,9 @@ export const logout = asyncHandler(async (req, res) => {
  */
 export const registrationOptions = asyncHandler(async (req, res) => {
   const currentUser = sessionUser(req);
+  if (!currentUser && !config.auth.allowSignup) {
+    throw httpError(403, 'signup_closed', 'new accounts are not being accepted');
+  }
   // A random WebAuthn user handle for new accounts; never an email or PHI.
   const userId = currentUser || null;
   const userHandle = currentUser || `pending_${randomUUID()}`;

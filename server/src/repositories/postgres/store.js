@@ -95,7 +95,7 @@ export async function createPostgresRepository({
     async countUsers() {
       return Number((await one('SELECT count(*)::int AS n FROM users')).n);
     },
-    /** Removes the user, their passkeys and (by cascade) all their PHI. */
+    /** Removes the user, their passkeys, password login and (by cascade) all their PHI. */
     async deleteUser(userId) {
       await pool.query('DELETE FROM users WHERE id = $1', [userId]);
     },
@@ -137,6 +137,44 @@ export async function createPostgresRepository({
         id,
         counter,
       ]);
+    },
+
+    // --- Email + password logins (one per user; email unique) ---
+    async getPasswordLogin(email) {
+      return mapPasswordLogin(
+        await one('SELECT * FROM password_logins WHERE email = $1', [email]),
+      );
+    },
+    async getPasswordLoginForUser(userId) {
+      return mapPasswordLogin(
+        await one('SELECT * FROM password_logins WHERE user_id = $1', [userId]),
+      );
+    },
+    async countPasswordLogins() {
+      return Number((await one('SELECT count(*)::int AS n FROM password_logins')).n);
+    },
+    /** Create or replace a user's login. Throws EMAIL_TAKEN if another user has the email. */
+    async setPasswordLogin(userId, { email, passwordHash }) {
+      try {
+        return mapPasswordLogin(
+          await one(
+            `INSERT INTO password_logins (user_id, email, password_hash)
+             VALUES ($1, $2, $3)
+             ON CONFLICT (user_id) DO UPDATE
+               SET email = EXCLUDED.email, password_hash = EXCLUDED.password_hash,
+                   updated_at = now()
+             RETURNING *`,
+            [userId, email, passwordHash],
+          ),
+        );
+      } catch (err) {
+        if (err.code === '23505') {
+          const taken = new Error('an account with that email already exists');
+          taken.code = 'EMAIL_TAKEN';
+          throw taken;
+        }
+        throw err;
+      }
     },
 
     // --- WebAuthn ceremony challenges ---
@@ -615,6 +653,9 @@ const num = (v) => (v == null ? null : Number(v));
 
 function mapUser(r) {
   return r && { _id: r.id, displayName: r.display_name, createdAt: r.created_at };
+}
+function mapPasswordLogin(r) {
+  return r && { userId: r.user_id, email: r.email, passwordHash: r.password_hash };
 }
 function mapCredential(r) {
   return (

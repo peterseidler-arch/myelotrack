@@ -12,3 +12,11 @@ export function badRequest(message) {
   err.code = 'bad_request';
   return err;
 }
+
+/** Build an HTTP error with a status, machine code and message. */
+export function httpError(status, code, message) {
+  const err = new Error(message);
+  err.status = status;
+  err.code = code;
+  return err;
+}

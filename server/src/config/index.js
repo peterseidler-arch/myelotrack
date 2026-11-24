@@ -66,6 +66,11 @@ export const config = {
       .split(',')
       .map((s) => s.trim())
       .filter(Boolean),
+    // Whether a signed-out visitor may create a new account (passkey or
+    // password). Set ALLOW_SIGNUP=false once your accounts exist, so a public
+    // URL can't be used to open new ones. Signed-in users can always add a
+    // passkey or password to their own account.
+    allowSignup: process.env.ALLOW_SIGNUP !== 'false',
     // HMAC secret for session tokens. Defaults to the field key if unset.
     sessionSecret: process.env.SESSION_SECRET || process.env.FIELD_ENCRYPTION_KEY || '',
   },
