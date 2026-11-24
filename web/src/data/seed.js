@@ -23,11 +23,11 @@ function withLocalOverride(state) {
 export function buildInitialState() {
   const state = {
     user: {
-      displayName: 'Peter Seidler',
-      initials: 'PS',
+      displayName: 'Sample Patient',
+      initials: 'SP',
       condition: 'Myelofibrosis · MDS overlap',
       // Clinical profile — semi-static facts that feed the prognostic scores.
-      dob: '1963-06-20',
+      dob: '1963-01-01',
       mpnSubtype: 'PMF', // PMF → DIPSS · ET → IPSET-thrombosis · PV → PV risk
       jak2: 'positive', // positive | negative | unknown
       priorThrombosis: false,

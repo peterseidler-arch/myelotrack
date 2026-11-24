@@ -22,6 +22,7 @@ export function createMemoryRepository({ seed = true } = {}) {
   const users = new Map();
   const patients = new Map(); // userId -> PHI bucket
   const credentials = []; // { id, userId, publicKey, counter, transports }
+  const passwordLogins = new Map(); // userId -> { userId, email, passwordHash }
   const challenges = new Map(); // challenge -> { purpose, userId, expiresAt }
   const auditLog = [];
 
@@ -79,6 +80,7 @@ export function createMemoryRepository({ seed = true } = {}) {
     deleteUser(userId) {
       users.delete(userId);
       patients.delete(userId);
+      passwordLogins.delete(userId);
       for (let i = credentials.length - 1; i >= 0; i--) {
         if (credentials[i].userId === userId) credentials.splice(i, 1);
       }
@@ -103,6 +105,29 @@ export function createMemoryRepository({ seed = true } = {}) {
     updateCredentialCounter(id, counter) {
       const cred = credentials.find((c) => c.id === id);
       if (cred) cred.counter = counter;
+    },
+
+    // --- Email + password logins (one per user; email unique) ---
+    /** Look up a login by normalized email (global: this is how sign-in finds the user). */
+    getPasswordLogin(email) {
+      for (const l of passwordLogins.values()) if (l.email === email) return { ...l };
+      return null;
+    },
+    getPasswordLoginForUser(userId) {
+      const l = passwordLogins.get(userId);
+      return l ? { ...l } : null;
+    },
+    countPasswordLogins() {
+      return passwordLogins.size;
+    },
+    /** Create or replace a user's login. Throws EMAIL_TAKEN if another user has the email. */
+    setPasswordLogin(userId, { email, passwordHash }) {
+      for (const l of passwordLogins.values()) {
+        if (l.email === email && l.userId !== userId) throw emailTaken();
+      }
+      const record = { userId, email, passwordHash };
+      passwordLogins.set(userId, record);
+      return { ...record };
     },
 
     // --- WebAuthn ceremony challenges (single use, short-lived) ---
@@ -132,6 +157,12 @@ export function createMemoryRepository({ seed = true } = {}) {
 
     computeFlag,
   };
+}
+
+function emailTaken() {
+  const err = new Error('an account with that email already exists');
+  err.code = 'EMAIL_TAKEN';
+  return err;
 }
 
 /** The PHI surface for a single patient. Every method touches only `db`. */

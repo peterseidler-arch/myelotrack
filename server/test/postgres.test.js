@@ -109,6 +109,11 @@ if (!url) {
     const { rows } = await repo.pool.query(
       'SELECT count(*)::int AS n FROM schema_migrations',
     );
-    assert.equal(rows[0].n, 1);
+    // Each migration file is recorded exactly once, however often they run.
+    const { readdir } = await import('node:fs/promises');
+    const files = (
+      await readdir(new URL('../src/repositories/postgres/migrations/', import.meta.url))
+    ).filter((f) => f.endsWith('.sql'));
+    assert.equal(rows[0].n, files.length);
   });
 }

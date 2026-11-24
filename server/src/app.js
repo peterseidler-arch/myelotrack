@@ -7,6 +7,7 @@ import { notFound, errorHandler } from './middleware/errors.js';
 import { apiRouter } from './routes/index.js';
 import { config } from './config/index.js';
 import { createStorage } from './storage/index.js';
+import { createAttemptLimiter } from './lib/rate-limit.js';
 
 /**
  * Build the Express app around a repository. Kept as a factory (no side
@@ -23,6 +24,8 @@ export function createApp(repo, deps = {}) {
   // origin checks depend on.
   app.set('trust proxy', true);
   app.locals.repo = repo;
+  // Failed password sign-ins, per IP and per email (see lib/rate-limit.js).
+  app.locals.loginLimiter = deps.loginLimiter ?? createAttemptLimiter();
   // Image storage is optional: only available once an encryption key is set.
   // Without it, image uploads are rejected but the rest of the API works.
   app.locals.storage =

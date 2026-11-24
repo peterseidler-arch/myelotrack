@@ -21,7 +21,7 @@ same-site session cookie. The container is defined by the repo `Dockerfile`.
 ```
 
 **End state.** MyeloTrack runs at `https://<your-domain>` (or the default
-`*.run.app` URL). Patients sign in with a passkey; each sees only their own
+`*.run.app` URL). Patients sign in with an email + password or a passkey; each sees only their own
 record. Labs/meds/symptoms/pallor persist in Cloud SQL; pallor images live in
 an encrypted GCS bucket.
 
@@ -92,6 +92,20 @@ role can't bypass it. The server checks this on start and refuses to run in
 production if the role is a superuser or has `BYPASSRLS`. If it refuses, create
 a plain role in Cloud SQL Studio or `psql`, grant it ownership of the database,
 and point `DATABASE_URL` at it.
+
+### Lock sign-up after your account exists
+
+Open the URL, create your account (email + password, or a passkey), then close
+sign-up so nobody else can open an account on your instance:
+
+```bash
+PROJECT_ID=<your-project> REGION=us-east1 ALLOW_SIGNUP=false bash scripts/deploy.sh
+# or, without a rebuild:
+gcloud run services update myelotrack --region=us-east1 --update-env-vars=ALLOW_SIGNUP=false
+```
+
+To let someone else in later (a reviewer, say), flip it back to `true`, have
+them sign up, and close it again.
 
 ### Domain + TLS
 

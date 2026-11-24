@@ -70,8 +70,12 @@ Stateless JSON API. Every PHI route is scoped to the signed-in patient:
 `requireAuth` verifies the session and binds `req.repo` to
 `repo.forUser(userId)`, so a controller can only reach that patient's data.
 It is a patient-facing app, not a clinic system: no user can see another's
-record. Sign-up and sign-in are passkeys (WebAuthn, discoverable credentials);
-a new passkey registered while signed out creates a new account.
+record. Sign-up and sign-in use a passkey (WebAuthn, discoverable credentials)
+or an email + password; either one, used while signed out, creates a new
+account. Passwords are hashed with scrypt, and failed password sign-ins are
+rate-limited per IP and per email (in-process; move to shared storage before
+running many instances). `ALLOW_SIGNUP=false` closes sign-up to signed-out
+visitors so a public URL can't be used to open accounts.
 
 Storage sits behind a repository interface with two implementations, chosen by
 `DATA_BACKEND`: `memory` (local dev, seeded sample data) and `postgres`
@@ -80,7 +84,13 @@ backend is Postgres, and the encryption and session secrets are set. See
 [`database-schema.md`](database-schema.md) for the isolation model.
 
 ```
-POST   /api/v1/auth/login              # passwordless / passkey preferred
+GET    /api/v1/auth/me                 # signed in? any accounts? sign-up open?
+POST   /api/v1/auth/password/signup    # new account: email + password
+POST   /api/v1/auth/password/login     # sign in: email + password
+PUT    /api/v1/auth/password           # signed in: add/change email + password
+GET    /api/v1/auth/{registration,authentication}/options  # passkey ceremonies
+POST   /api/v1/auth/{registration,authentication}/verify
+POST   /api/v1/auth/logout
 GET    /api/v1/symptoms?from=&to=      # daily MPN-SAF entries
 POST   /api/v1/symptoms                # create/replace today's entry
 GET    /api/v1/medications             # regimen
@@ -211,8 +221,8 @@ This is PHI. Non-negotiables before any real backend serves real data:
 - **Encryption in transit** — TLS everywhere; HSTS; no mixed content.
 - **Audit logging** — append-only log of every read/write to PHI (who, what,
   when, from where), retained per policy and never mutated in place.
-- **Access control** — passwordless/passkey auth, short-lived access tokens,
-  refresh rotation. OAuth refresh tokens for the FHIR sources stored encrypted
+- **Access control** — passkey or scrypt-hashed password sign-in, rate-limited
+  password attempts, HttpOnly signed session cookies (14 days). OAuth refresh tokens for the FHIR sources stored encrypted
   and never returned to the client.
 - **HIPAA-compliant hosting** — Google Cloud under its **BAA**, using only
   products on Google's HIPAA-covered list (Cloud Run, Cloud SQL, Cloud Storage,
@@ -221,7 +231,7 @@ This is PHI. Non-negotiables before any real backend serves real data:
 - **Data minimization** — pull only the analytes and resources the app uses;
   don't hoard the whole record.
 
-Status (November 2026): passkey sign-in, per-patient isolation (code + RLS),
+Status (November 2026): passkey and password sign-in, per-patient isolation (code + RLS),
 the append-only audit table, encrypted tokens and images, and the
 production start-up guard are implemented. Still to do before real patients:
 signing the BAA under the owning entity, CMEK and retention decisions, and
