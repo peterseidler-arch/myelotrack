@@ -61,11 +61,10 @@ export function renderMeds(container) {
         el('div', { class: 'row' }, [
           makeDoseCheck(dose),
           el('div', { class: 'grow' }, [
-            el(
-              'div',
-              { class: 'title' },
+            el('div', { class: 'title' }, [
               `${dose.med.name}${dose.med.brand ? ` · ${dose.med.brand}` : ''}`,
-            ),
+              dose.med.trial ? el('span', { class: 'trial-pill' }, 'Trial') : null,
+            ]),
             el('div', { class: 'sub' }, `${dose.med.dose} — ${dose.med.purpose}`),
           ]),
         ]),
@@ -96,37 +95,63 @@ export function renderMeds(container) {
     );
     return;
   }
-  const regimen = el('div', { class: 'card tight' });
+  // Clinical-trial drugs first, in their own highlighted group per trial.
+  const trials = new Map();
+  const others = [];
   for (const med of state.medications) {
-    regimen.append(
-      el(
-        'button',
-        {
-          class: 'row row-button',
-          type: 'button',
-          onclick: () => openMedSheet(med),
-          'aria-label': `Edit ${med.name}`,
-        },
-        [
-          el('div', { class: 'grow' }, [
-            el(
-              'div',
-              { class: 'title' },
-              `${med.name}${med.brand ? ` · ${med.brand}` : ''} ${med.dose}`,
-            ),
-            el('div', { class: 'sub' }, whenText(med)),
-            med.prescriber || med.purpose
-              ? el(
-                  'div',
-                  { class: 'sub' },
-                  [med.purpose, med.prescriber].filter(Boolean).join(' · '),
-                )
-              : null,
-          ]),
-          el('span', { class: 'chevron' }, '›'),
-        ],
-      ),
-    );
+    if (med.trial) {
+      const key = med.trial.name || 'Clinical trial';
+      if (!trials.has(key)) trials.set(key, []);
+      trials.get(key).push(med);
+    } else {
+      others.push(med);
+    }
   }
+  for (const [name, meds] of trials) {
+    const cycle = meds.find((m) => m.trial.cycleDays)?.trial.cycleDays;
+    const card = el('div', { class: 'card tight trial-card' }, [
+      el('div', { class: 'trial-head' }, [
+        el('span', { class: 'trial-pill' }, 'Clinical trial'),
+        el('span', { class: 'trial-name' }, name),
+        cycle ? el('span', { class: 'trial-cycle' }, `${cycle}-day cycles`) : null,
+      ]),
+    ]);
+    for (const med of meds) card.append(regimenRow(med));
+    container.append(card);
+  }
+  if (!others.length) return;
+  const regimen = el('div', { class: 'card tight' });
+  for (const med of others) regimen.append(regimenRow(med));
   container.append(regimen);
+}
+
+/** One tappable regimen row (opens edit / stop). */
+function regimenRow(med) {
+  return el(
+    'button',
+    {
+      class: 'row row-button',
+      type: 'button',
+      onclick: () => openMedSheet(med),
+      'aria-label': `Edit ${med.name}`,
+    },
+    [
+      el('div', { class: 'grow' }, [
+        el(
+          'div',
+          { class: 'title' },
+          `${med.name}${med.brand ? ` · ${med.brand}` : ''} ${med.dose}`,
+        ),
+        el('div', { class: 'sub' }, whenText(med)),
+        med.prescriber || med.purpose
+          ? el(
+              'div',
+              { class: 'sub' },
+              [med.purpose, med.prescriber].filter(Boolean).join(' · '),
+            )
+          : null,
+      ]),
+      el('span', { class: 'chevron' }, '›'),
+    ],
+  );
 }

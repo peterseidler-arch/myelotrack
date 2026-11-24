@@ -195,6 +195,12 @@ export function parseMedList(items) {
     const scheduleText = raw.includes('(') ? raw : raw.replace(/\)\s*$/, '');
     const { times, asNeeded } = scheduleTimes(scheduleText);
     const dose = /^tbd$/i.test(cell.dose || '') ? 'TBD' : cell.dose || '';
+    // Sections named like a study mark their drugs as clinical-trial drugs; a
+    // "x 28 days" schedule gives the cycle length.
+    const cycle = /\bx\s*(\d{1,3})\s*days?\b/i.exec(scheduleText);
+    const trial = /\b(trial|study|protocol)\b/i.test(section)
+      ? { name: section, cycleDays: cycle ? Number(cycle[1]) : null }
+      : null;
     medications.push({
       name,
       brand,
@@ -202,6 +208,7 @@ export function parseMedList(items) {
       purpose: [section, drugClass].filter(Boolean).join(' · '),
       prescriber: cell.prescriber || sectionDoctor || '',
       schedule: { times, asNeeded, instructions: scheduleText.trim() },
+      trial,
     });
   }
   return { title, medications, skipped, kind: 'medlist' };

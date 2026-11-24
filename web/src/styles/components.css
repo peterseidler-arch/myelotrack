@@ -1042,3 +1042,47 @@ svg.spark {
   width: 110px;
   text-align: right;
 }
+
+/* Clinical-trial drugs */
+.trial-pill {
+  display: inline-block;
+  margin-left: 8px;
+  padding: 2px 8px;
+  border-radius: 100px;
+  background: var(--purple);
+  color: #fff;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  vertical-align: 2px;
+}
+.trial-card {
+  border: 2px solid var(--purple);
+  margin-bottom: 14px;
+}
+.trial-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 0 4px;
+}
+.trial-head .trial-pill {
+  margin-left: 0;
+}
+.trial-name {
+  font-weight: 700;
+  font-size: 15px;
+}
+.trial-cycle {
+  font-size: 13px;
+  color: var(--label-2);
+}
+.med-trial-fields {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.med-trial-fields[hidden] {
+  display: none;
+}

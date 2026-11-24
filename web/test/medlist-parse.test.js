@@ -52,6 +52,8 @@ test('reads sections, columns, brands and a header-less doctor column', () => {
     },
   );
   assert.deepEqual(a.schedule.times, ['08:00', '20:00']);
+  assert.deepEqual(a.trial, { name: 'Example Trial', cycleDays: 21 });
+  assert.equal(b.trial, null);
   assert.equal(a.schedule.instructions, '2 tablets twice daily x 21 days');
 
   assert.equal(b.brand, 'Brandex');

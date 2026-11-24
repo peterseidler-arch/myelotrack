@@ -51,6 +51,17 @@ function cleanSchedule(s = {}) {
   };
 }
 
+/** Clinical-trial marker: null, or { name, cycleDays } (cycle length 1–365 days). */
+function cleanTrial(t) {
+  if (!t) return null;
+  if (typeof t !== 'object') throw badRequest('trial must be an object');
+  const days = t.cycleDays == null || t.cycleDays === '' ? null : Number(t.cycleDays);
+  if (days != null && !(Number.isInteger(days) && days >= 1 && days <= 365)) {
+    throw badRequest('trial cycle length must be 1–365 days');
+  }
+  return { name: text(t.name, 120) || 'Clinical trial', cycleDays: days };
+}
+
 /**
  * Pick the editable fields from a request body. With `partial`, absent fields
  * are left out (PATCH); otherwise a name is required (create).
@@ -66,6 +77,7 @@ function cleanMedication(body = {}, { partial = false } = {}) {
     const name = text(body.prescriber?.name ?? body.prescriber, 80);
     out.prescriber = name ? { name } : null;
   }
+  if (!partial || 'trial' in body) out.trial = cleanTrial(body.trial);
   if ('name' in out && !out.name) throw badRequest('name is required');
   return out;
 }

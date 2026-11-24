@@ -106,6 +106,21 @@ test('import leaves hand-added medications alone', async () => {
   assert.deepEqual(names, ['Gammacin', 'Handadded']);
 });
 
+test('clinical-trial marker: set on create, validated, cleared on edit', async () => {
+  const res = await call('POST', '/medications', {
+    name: 'Trialumab',
+    trial: { name: 'Example Study', cycleDays: 28 },
+  });
+  const { data } = await res.json();
+  assert.deepEqual(data.trial, { name: 'Example Study', cycleDays: 28 });
+  const bad = await call('PATCH', `/medications/${data._id}`, {
+    trial: { cycleDays: 0 },
+  });
+  assert.equal(bad.status, 400);
+  const cleared = await call('PATCH', `/medications/${data._id}`, { trial: null });
+  assert.equal((await cleared.json()).data.trial, null);
+});
+
 test('import rejects an empty list', async () => {
   assert.equal(
     (await call('POST', '/medications/import', { medications: [] })).status,

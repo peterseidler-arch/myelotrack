@@ -22,6 +22,7 @@ export function toApiMed(m) {
     dose: m.dose || '',
     purpose: m.purpose || '',
     prescriber: m.prescriber ? { name: m.prescriber } : null,
+    trial: m.trial || null,
     schedule: {
       times: m.times || [],
       asNeeded: Boolean(m.asNeeded),
@@ -102,6 +103,26 @@ export function openMedSheet(med) {
     const asNeeded = el('input', { type: 'checkbox' });
     asNeeded.checked = Boolean(med?.asNeeded);
     const times = timesEditor(med?.times || []);
+    const isTrial = el('input', { type: 'checkbox' });
+    isTrial.checked = Boolean(med?.trial);
+    const trialName = input({
+      value: med?.trial?.name || '',
+      placeholder: 'e.g. study name',
+    });
+    const cycleDays = input({
+      type: 'number',
+      inputmode: 'numeric',
+      min: '1',
+      max: '365',
+      value: med?.trial?.cycleDays ?? '',
+      placeholder: 'e.g. 28',
+    });
+    const trialFields = el('div', { class: 'med-trial-fields' }, [
+      label('Trial name', trialName),
+      label('Cycle length (days)', cycleDays),
+    ]);
+    trialFields.hidden = !isTrial.checked;
+    isTrial.addEventListener('change', () => (trialFields.hidden = !isTrial.checked));
     const err = el('div', { class: 'err', role: 'alert' });
 
     const form = el('form', { class: 'med-form', novalidate: '' }, [
@@ -116,6 +137,11 @@ export function openMedSheet(med) {
       ]),
       label('What it’s for', purpose),
       label('Prescriber', prescriber),
+      el('label', { class: 'med-option' }, [
+        isTrial,
+        el('span', {}, 'Clinical trial drug'),
+      ]),
+      trialFields,
       err,
     ]);
     const save = el('button', { class: 'btn', type: 'submit' }, 'Save');
@@ -140,6 +166,12 @@ export function openMedSheet(med) {
         prescriber: prescriber.value.trim(),
         times: times.get(),
         asNeeded: asNeeded.checked,
+        trial: isTrial.checked
+          ? {
+              name: trialName.value.trim() || 'Clinical trial',
+              cycleDays: cycleDays.value ? Number(cycleDays.value) : null,
+            }
+          : null,
       };
       save.disabled = true;
       try {

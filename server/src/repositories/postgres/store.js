@@ -323,12 +323,13 @@ function createPatientScope(userId, asPatient) {
             m.provenance?.externalId ?? null,
             m.startedAt ?? null,
             m.stoppedAt ?? null,
+            m.trial ? json(m.trial) : null,
           ];
           await c.query(
             `INSERT INTO medications (user_id, name, brand, dose, form, purpose, rxnorm,
                schedule, prescriber, active, source, provenance, external_id,
-               started_at, stopped_at)
-             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)
+               started_at, stopped_at, trial)
+             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)
              ON CONFLICT (user_id, external_id) WHERE external_id IS NOT NULL
              DO UPDATE SET name = EXCLUDED.name, brand = EXCLUDED.brand,
                dose = EXCLUDED.dose, form = EXCLUDED.form, purpose = EXCLUDED.purpose,
@@ -336,7 +337,7 @@ function createPatientScope(userId, asPatient) {
                prescriber = EXCLUDED.prescriber, active = EXCLUDED.active,
                source = EXCLUDED.source, provenance = EXCLUDED.provenance,
                started_at = EXCLUDED.started_at, stopped_at = EXCLUDED.stopped_at,
-               updated_at = now()`,
+               trial = EXCLUDED.trial, updated_at = now()`,
             params,
           );
         }
@@ -348,8 +349,8 @@ function createPatientScope(userId, asPatient) {
       return tx(async (c) => {
         const { rows } = await c.query(
           `INSERT INTO medications (user_id, name, brand, dose, form, purpose, schedule,
-             prescriber, active, source, provenance, external_id, started_at)
-           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13) RETURNING *`,
+             prescriber, active, source, provenance, external_id, started_at, trial)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14) RETURNING *`,
           [
             userId,
             m.name,
@@ -364,6 +365,7 @@ function createPatientScope(userId, asPatient) {
             m.provenance ? json(m.provenance) : null,
             m.provenance?.externalId ?? null,
             m.startedAt ?? null,
+            m.trial ? json(m.trial) : null,
           ],
         );
         return mapMedication(rows[0]);
@@ -381,13 +383,14 @@ function createPatientScope(userId, asPatient) {
         active: 'active',
         stoppedAt: 'stopped_at',
         provenance: 'provenance',
+        trial: 'trial',
       };
       const sets = [];
       const params = [userId, id];
       for (const [key, col] of Object.entries(cols)) {
         if (!(key in patch)) continue;
         let v = patch[key];
-        if (key === 'schedule' || key === 'provenance' || key === 'prescriber') {
+        if (['schedule', 'provenance', 'prescriber', 'trial'].includes(key)) {
           v = v == null ? null : json(v);
         }
         params.push(v);
@@ -761,6 +764,7 @@ function mapMedication(r) {
   if (r.provenance != null) m.provenance = r.provenance;
   if (r.started_at != null) m.startedAt = r.started_at;
   if (r.stopped_at != null) m.stoppedAt = r.stopped_at;
+  m.trial = r.trial ?? null;
   return m;
 }
 function mapDose(r) {

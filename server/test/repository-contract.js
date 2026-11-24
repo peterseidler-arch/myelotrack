@@ -217,7 +217,13 @@ export function runRepositoryContract(name, makeRepo) {
     assert.equal(med.active, true);
     assert.equal(await B.updateMedication(med._id, { dose: 'x' }), null);
 
+    assert.equal(med.trial ?? null, null);
+    const marked = await A.updateMedication(med._id, {
+      trial: { name: 'Study X', cycleDays: 21 },
+    });
+    assert.deepEqual(marked.trial, { name: 'Study X', cycleDays: 21 });
     const edited = await A.updateMedication(med._id, { dose: '20 mg' });
+    assert.deepEqual(edited.trial, { name: 'Study X', cycleDays: 21 });
     assert.equal(edited.dose, '20 mg');
     assert.equal(edited.name, 'Examplamab');
     assert.equal(edited.prescriber.name, 'Dr. Example');

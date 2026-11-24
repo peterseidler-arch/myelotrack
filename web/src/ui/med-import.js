@@ -95,6 +95,7 @@ function renderReview(container, parsed) {
       times: m.schedule.times,
       asNeeded: m.schedule.asNeeded,
       instructions: m.schedule.instructions,
+      trial: m.trial,
     },
     timesText: m.schedule.times.join(', '),
   }));
@@ -129,11 +130,10 @@ function renderReview(container, parsed) {
       el('div', { class: 'row med-review-row' }, [
         check,
         el('div', { class: 'grow' }, [
-          el(
-            'div',
-            { class: 'title' },
+          el('div', { class: 'title' }, [
             `${r.med.name}${r.med.brand ? ` · ${r.med.brand}` : ''} ${r.med.dose}`,
-          ),
+            r.med.trial ? el('span', { class: 'trial-pill' }, 'Trial') : null,
+          ]),
           el('div', { class: 'sub' }, sub),
           r.med.purpose ? el('div', { class: 'sub' }, r.med.purpose) : null,
           times,

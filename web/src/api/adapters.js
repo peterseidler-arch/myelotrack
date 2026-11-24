@@ -58,6 +58,7 @@ export function medsToStore(apiMeds) {
     asNeeded: Boolean(m.schedule?.asNeeded),
     instructions: m.schedule?.instructions || '',
     prescriber: m.prescriber?.name || '',
+    trial: m.trial || null,
   }));
 }
 
