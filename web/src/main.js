@@ -55,7 +55,10 @@ async function main() {
     try {
       const auth = await api.authMe();
       if (auth.required && !auth.authenticated) {
-        await showAuthGate({ hasCredentials: auth.hasCredentials });
+        await showAuthGate({
+          hasCredentials: auth.hasCredentials,
+          signupOpen: auth.signupOpen,
+        });
       }
       await store.hydrate();
     } catch (err) {

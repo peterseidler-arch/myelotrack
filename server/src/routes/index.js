@@ -6,6 +6,7 @@ import * as pallor from '../controllers/pallor.js';
 import * as integrations from '../controllers/integrations.js';
 import * as auth from '../controllers/auth.js';
 import * as account from '../controllers/account.js';
+import * as password from '../controllers/password.js';
 import { requireAuth } from '../middleware/auth.js';
 
 /** Mount the v1 API surface (see docs/architecture.md). */
@@ -19,9 +20,14 @@ export function apiRouter() {
   r.post('/auth/registration/verify', auth.registrationVerify);
   r.get('/auth/authentication/options', auth.authenticationOptions);
   r.post('/auth/authentication/verify', auth.authenticationVerify);
+  r.post('/auth/password/signup', password.signup);
+  r.post('/auth/password/login', password.login);
 
   // Everything below requires a session when AUTH_REQUIRED=true (no-op otherwise).
   r.use(requireAuth);
+
+  // Add or change the signed-in account's email + password.
+  r.put('/auth/password', password.setPassword);
 
   r.get('/symptoms', symptoms.list);
   r.post('/symptoms', symptoms.create);

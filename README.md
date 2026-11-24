@@ -89,8 +89,10 @@ is a data-source swap, not a rewrite. Full detail in
 - **Score** — subtype-aware risk scoring (DIPSS for myelofibrosis,
   IPSET-thrombosis for ET, PV risk) from the clinical profile and labs.
 - **Trends** — check-in totals and key labs over time.
-- **Sign-in & onboarding** — passkey (WebAuthn) accounts, first-run consent.
-- **Settings** — clinical profile, care-team connections (SMART on FHIR to
+- **Sign-in & onboarding** — email + password or passkey (WebAuthn) accounts,
+  first-run consent. Set `ALLOW_SIGNUP=false` to stop new accounts once yours
+  exist.
+- **Settings** — sign-in (add/change password, sign out), clinical profile, care-team connections (SMART on FHIR to
   Epic), and "Your data": export everything or erase it.
 
 ## Progressive web app
@@ -105,7 +107,7 @@ without a connection. The service worker is only active in a production build
 ## Data sensitivity
 
 No real health data until it runs under a signed BAA. In production
-(`NODE_ENV=production`) the server refuses to start unless passkey sign-in is
+(`NODE_ENV=production`) the server refuses to start unless sign-in is
 on, the backend is Postgres with a role that can't bypass row-level security,
 and the encryption and session secrets are set. See
 `docs/architecture.md` → "Data sensitivity & compliance".

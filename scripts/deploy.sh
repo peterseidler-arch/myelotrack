@@ -4,7 +4,7 @@
 # Builds the image from the repo Dockerfile via Cloud Build and rolls out a new
 # revision. Run scripts/setup-gcp.sh first (APIs, bucket, secrets).
 #
-# Passkey auth (WebAuthn) binds credentials to an exact origin, so the service
+# Sign-in is a passkey or an email + password. Passkeys (WebAuthn) bind credentials to an exact origin, so the service
 # needs to know its own public host. Sign-in is ALWAYS on (the server refuses
 # to start in production without it):
 #   • DOMAIN set        → use https://$DOMAIN
@@ -14,7 +14,7 @@
 #
 # Usage:
 #   PROJECT_ID=<your-project> REGION=us-east1 [DOMAIN=app.example.com] \
-#     bash scripts/deploy.sh
+#     [ALLOW_SIGNUP=false] bash scripts/deploy.sh
 set -euo pipefail
 
 PROJECT_ID="${PROJECT_ID:?set PROJECT_ID to your Google Cloud project id}"
@@ -22,6 +22,9 @@ REGION="${REGION:-us-east1}"
 SERVICE="${SERVICE:-myelotrack}"
 SQL_INSTANCE="${SQL_INSTANCE:-myelotrack-db}"
 DOMAIN="${DOMAIN:-}"
+# Set ALLOW_SIGNUP=false after you have created your account(s). Left unset,
+# a redeploy keeps the live service's current value (open on the first deploy).
+ALLOW_SIGNUP="${ALLOW_SIGNUP:-}"
 
 existing_url() {
   gcloud run services describe "$SERVICE" \
@@ -42,11 +45,26 @@ else
   HOST="${URL#https://}"
 fi
 
+if [ -z "$ALLOW_SIGNUP" ]; then
+  ALLOW_SIGNUP="$(gcloud run services describe "$SERVICE" \
+    --project="$PROJECT_ID" --region="$REGION" \
+    --format=json 2>/dev/null | python3 -c '
+import json, sys
+try:
+    envs = json.load(sys.stdin)["spec"]["template"]["spec"]["containers"][0].get("env", [])
+    print(next((e.get("value", "") for e in envs if e["name"] == "ALLOW_SIGNUP"), ""))
+except Exception:
+    print("")
+' || true)"
+  ALLOW_SIGNUP="${ALLOW_SIGNUP:-true}"
+fi
+echo "▸ New-account sign-up: ALLOW_SIGNUP=$ALLOW_SIGNUP"
+
 BUCKET="${BUCKET:-${PROJECT_ID}-pallor}"
 CONNECTION_NAME="$(gcloud sql instances describe "$SQL_INSTANCE" \
   --project="$PROJECT_ID" --format='value(connectionName)')"
 ENV="DATA_BACKEND=postgres,STORAGE_BACKEND=gcs,STORAGE_BUCKET=$BUCKET"
-ENV="$ENV,AUTH_REQUIRED=true,RP_NAME=MyeloTrack"
+ENV="$ENV,AUTH_REQUIRED=true,ALLOW_SIGNUP=$ALLOW_SIGNUP,RP_NAME=MyeloTrack"
 
 if [ -n "$HOST" ]; then
   echo "▸ Deploying with passkeys bound to: https://$HOST"

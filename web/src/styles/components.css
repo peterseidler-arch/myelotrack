@@ -855,6 +855,81 @@ svg.spark {
 .auth-gate .btn + .btn {
   margin-top: 10px;
 }
+/* Email + password form on the sign-in gate. 16px+ inputs stop iOS zooming. */
+.auth-form {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  text-align: left;
+}
+.auth-input {
+  width: 100%;
+  font: inherit;
+  font-size: 17px;
+  color: var(--label);
+  background: var(--bg-elev);
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius);
+  padding: 14px 16px;
+}
+.auth-input:focus {
+  outline: 2px solid var(--blue);
+  outline-offset: -1px;
+}
+.auth-hint {
+  font-size: 13px;
+  color: var(--label-2);
+  padding: 0 4px;
+}
+.auth-form .btn {
+  margin-top: 6px;
+}
+.auth-or {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: 18px 0 6px;
+  font-size: 13px;
+  color: var(--label-3);
+}
+.auth-or::before,
+.auth-or::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background: var(--hairline);
+}
+.auth-switch {
+  margin-top: 8px;
+  background: none;
+  border: none;
+  color: var(--label-2);
+  font-size: 15px;
+  padding: 8px;
+}
+.auth-switch[disabled] {
+  opacity: 0.45;
+}
+/* Sign-in section in Settings */
+.account-form {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px 0 4px;
+}
+.account-form[hidden],
+.auth-hint[hidden] {
+  display: none;
+}
+.account-form .auth-input {
+  font-size: 16px;
+  padding: 11px 14px;
+}
+.account-form .err {
+  color: var(--red);
+  font-size: 13px;
+  min-height: 0;
+}
 .auth-gate .err {
   color: var(--red);
   font-size: 13px;
