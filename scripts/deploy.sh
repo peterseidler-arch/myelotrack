@@ -12,6 +12,10 @@
 #   • else (very first) → deploy PRIVATE (no public access), read the new URL,
 #                          bind passkeys to it, then open public access.
 #
+# Public access turns off Cloud Run's invoker IAM check rather than granting
+# allUsers, which organization policies (domain restricted sharing) often
+# block. The app's own sign-in still guards every health-data route.
+#
 # Usage:
 #   PROJECT_ID=<your-project> REGION=us-east1 [DOMAIN=app.example.com] \
 #     [ALLOW_SIGNUP=false] bash scripts/deploy.sh
@@ -69,11 +73,11 @@ ENV="$ENV,AUTH_REQUIRED=true,ALLOW_SIGNUP=$ALLOW_SIGNUP,RP_NAME=MyeloTrack"
 if [ -n "$HOST" ]; then
   echo "▸ Deploying with passkeys bound to: https://$HOST"
   ENV="$ENV,$(origin_env "$HOST")"
-  ACCESS="--allow-unauthenticated"
+  ACCESS="--no-invoker-iam-check"
 else
   echo "▸ First deploy: no public host yet. Deploying private, then binding passkeys."
   ENV="$ENV,RP_ID=localhost,RP_ORIGIN=https://localhost"
-  ACCESS="--no-allow-unauthenticated"
+  ACCESS="--invoker-iam-check"
 fi
 
 gcloud run deploy "$SERVICE" \
@@ -93,9 +97,8 @@ if [ -z "$HOST" ]; then
   gcloud run services update "$SERVICE" \
     --project="$PROJECT_ID" --region="$REGION" \
     --update-env-vars="$(origin_env "$HOST")" --quiet
-  gcloud run services add-iam-policy-binding "$SERVICE" \
-    --project="$PROJECT_ID" --region="$REGION" \
-    --member=allUsers --role=roles/run.invoker --quiet >/dev/null
+  gcloud run services update "$SERVICE" \
+    --project="$PROJECT_ID" --region="$REGION" --no-invoker-iam-check --quiet
 fi
 
 echo ""
