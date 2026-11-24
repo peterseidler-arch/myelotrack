@@ -77,8 +77,8 @@ test('export never leaks integration OAuth tokens', async () => {
   }
 });
 
-test('DELETE /api/v1/account erases all PHI and purges blobs', async () => {
-  const res = await del('/api/v1/account');
+test('DELETE /api/v1/account/data erases all PHI and purges blobs', async () => {
+  const res = await del('/api/v1/account/data');
   assert.equal(res.status, 200);
   const { data } = await res.json();
   assert.ok(data.deleted.pallor >= 1);

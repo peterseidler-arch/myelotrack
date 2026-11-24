@@ -27,31 +27,44 @@ export const exportData = asyncHandler(async (req, res) => {
   });
 });
 
-/**
- * DELETE /api/v1/account — erase all of the patient's PHI (right to be
- * forgotten). Purges encrypted pallor blobs from object storage first, then
- * drops every PHI record, and ends the session. The passkey credential is kept
- * so the patient can sign back into a now-empty app.
- */
-export const deleteAccount = asyncHandler(async (req, res) => {
-  const r = repo(req);
+/** Best-effort purge of every encrypted pallor blob before its record goes. */
+async function purgePallorBlobs(req) {
   const storage = req.app.locals.storage;
-
-  // Best-effort blob purge before the records that point at them are gone.
-  if (storage?.delete) {
-    const photos = await r.listPallor();
-    for (const p of photos) {
-      if (p.storage?.key) {
-        try {
-          await storage.delete(p.storage.key);
-        } catch (err) {
-          console.error('[account] pallor blob purge failed', p.storage.key, err);
-        }
-      }
+  if (!storage?.delete) return;
+  const photos = await repo(req).listPallor();
+  for (const p of photos) {
+    if (!p.storage?.key) continue;
+    try {
+      await storage.delete(p.storage.key);
+    } catch (err) {
+      // Log the failure without the key: keys embed the user id.
+      console.error('[account] pallor blob purge failed:', err?.code || err?.message);
     }
   }
+}
 
-  const deleted = await r.deleteAllData();
-  clearSessionCookie(res);
+/**
+ * DELETE /api/v1/account/data — erase all of the patient's health data but
+ * keep the account. Purges encrypted pallor blobs, drops every PHI record and
+ * keeps the passkey, so the patient can sign back into a now-empty app.
+ */
+export const deleteData = asyncHandler(async (req, res) => {
+  await purgePallorBlobs(req);
+  const deleted = await repo(req).deleteAllData();
   res.json({ data: { deleted } });
+});
+
+/**
+ * DELETE /api/v1/account — close the account entirely (App Store guideline
+ * 5.1.1(v)). Purges pallor blobs, erases all PHI, removes the user and every
+ * passkey, and ends the session; the old session token stops working because
+ * requireAuth rejects sessions for users that no longer exist. The audit log
+ * keeps its entries (append-only), which hold no health data.
+ */
+export const deleteAccount = asyncHandler(async (req, res) => {
+  await purgePallorBlobs(req);
+  const deleted = await repo(req).deleteAllData();
+  await req.app.locals.repo.deleteUser(req.authUserId);
+  clearSessionCookie(res);
+  res.json({ data: { deleted, accountDeleted: true } });
 });

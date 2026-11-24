@@ -53,6 +53,9 @@ export const api = {
   // credentials) rather than going through `request` — the response is a raw
   // document, not the usual { data } envelope.
   exportUrl: () => `${API_BASE}/api/v1/account/export`,
+  // Erase health data but keep the account (and its passkey).
+  deleteData: () => request('/api/v1/account/data', { method: 'DELETE' }),
+  // Close the account: data, photos, passkeys and the account itself.
   deleteAccount: () => request('/api/v1/account', { method: 'DELETE' }),
 
   // Integrations (care teams)

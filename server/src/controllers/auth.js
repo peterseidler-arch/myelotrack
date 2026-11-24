@@ -19,9 +19,12 @@ const repo = (req) => req.app.locals.repo;
 const b64 = (u8) => Buffer.from(u8).toString('base64url');
 const fromB64 = (s) => new Uint8Array(Buffer.from(s, 'base64url'));
 
-/** The signed-in user id, or null. */
-const sessionUser = (req) =>
-  verifySession(readSessionToken(req), config.auth.sessionSecret);
+/** The signed-in user id, or null (also null if the account was deleted). */
+async function sessionUser(req) {
+  const userId = verifySession(readSessionToken(req), config.auth.sessionSecret);
+  if (!userId) return null;
+  return (await repo(req).getUser(userId)) ? userId : null;
+}
 
 /**
  * Pull the challenge out of a WebAuthn response's clientDataJSON so we can
@@ -38,7 +41,7 @@ function challengeFrom(body) {
 
 /** GET /api/v1/auth/me — auth state for the client to decide what UI to show. */
 export const me = asyncHandler(async (req, res) => {
-  const userId = sessionUser(req);
+  const userId = await sessionUser(req);
   // hasCredentials drives the gate's default button. Signed out, it reports
   // whether any account exists on this server (sign in vs. first-run sign up).
   const hasCredentials = userId
@@ -65,7 +68,7 @@ export const logout = asyncHandler(async (req, res) => {
  * a new patient account, which owns the passkey once verified.
  */
 export const registrationOptions = asyncHandler(async (req, res) => {
-  const currentUser = sessionUser(req);
+  const currentUser = await sessionUser(req);
   // A random WebAuthn user handle for new accounts; never an email or PHI.
   const userId = currentUser || null;
   const userHandle = currentUser || `pending_${randomUUID()}`;

@@ -153,7 +153,7 @@ async function deleteData(event) {
   btn.disabled = true;
   btn.textContent = 'Deleting…';
   try {
-    await api.deleteAccount();
+    await api.deleteData();
     toast('Your data was deleted');
     // Reload so the app reflects the now-empty record.
     setTimeout(() => window.location.reload(), 600);
@@ -164,7 +164,29 @@ async function deleteData(event) {
   }
 }
 
-/** "Your data" section — export a copy, or erase everything (consent promise). */
+async function deleteAccount(event) {
+  const ok = window.confirm(
+    'Delete your MyeloTrack account? This erases all your data and photos, ' +
+      'removes your passkey from MyeloTrack, and signs you out. This cannot be undone.',
+  );
+  if (!ok) return;
+  const btn = event.currentTarget;
+  btn.disabled = true;
+  btn.textContent = 'Deleting…';
+  try {
+    await api.deleteAccount();
+    toast('Your account was deleted');
+    // Reload: the session is gone, so the app returns to the sign-in screen.
+    // The passkey stays in the device's password manager until removed there.
+    setTimeout(() => window.location.reload(), 600);
+  } catch {
+    toast('Delete failed');
+    btn.disabled = false;
+    btn.textContent = 'Delete account';
+  }
+}
+
+/** "Your data" section — export a copy, erase the data, or close the account. */
 function renderDataControls(sheet) {
   sheet.append(
     el('h2', {}, 'Your data'),
@@ -194,7 +216,7 @@ function renderDataControls(sheet) {
           'div',
           { class: 'sub' },
           USE_API
-            ? 'Permanently erase your entire record.'
+            ? 'Erase all your records and photos. Your account stays.'
             : 'Erasing your synced record needs the backend API.',
         ),
       ]),
@@ -207,6 +229,27 @@ function renderDataControls(sheet) {
         : []),
     ]),
   );
+  if (USE_API) {
+    card.append(
+      el('div', { class: 'row' }, [
+        el('div', { class: 'grow' }, [
+          el('div', { class: 'title' }, 'Delete my account'),
+          el(
+            'div',
+            { class: 'sub' },
+            'Erase everything, remove your passkey, and close the account.',
+          ),
+        ]),
+        el('div', { class: 'trail' }, [
+          el(
+            'button',
+            { class: 'btn small danger', onclick: deleteAccount },
+            'Delete account',
+          ),
+        ]),
+      ]),
+    );
+  }
   sheet.append(card);
 }
 
