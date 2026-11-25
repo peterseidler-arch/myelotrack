@@ -15,6 +15,12 @@ function loadPdfjs() {
   return pdfjsPromise;
 }
 
+/** Positioned text items from a user-chosen PDF, read on this device. */
+export async function readPdfFileItems(file) {
+  const pdfjs = await loadPdfjs();
+  return readPdfItems(pdfjs, new Uint8Array(await file.arrayBuffer()));
+}
+
 /**
  * Read a MyChart PDF chosen by the user and parse it — entirely on this
  * device. The file's bytes are never uploaded; only the parsed values are.

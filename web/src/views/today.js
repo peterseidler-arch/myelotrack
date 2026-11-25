@@ -6,6 +6,7 @@ import { SYMPTOM_ITEMS, totalSymptomScore, symptomBand } from '../data/symptoms.
 import { todaysDoses } from '../data/meds.js';
 import { api } from '../api/client.js';
 import { USE_API } from '../config.js';
+import { getUnits, weightOut, weightIn, tempOut, tempIn } from '../lib/units.js';
 
 // Which "today" sub-tab is showing. Module-level so it survives the
 // store-driven re-render (the router re-renders the active tab on every commit).
@@ -142,28 +143,51 @@ function renderSymptoms(container, state) {
   container.append(medsCard);
 }
 
+/**
+ * Weight as a typed number in the chosen unit (a slider is too coarse across a
+ * real weight range). Stored in kg.
+ */
+function weightRow(state, unit, commit) {
+  const shown = Math.round(weightOut(state.todayWeight, unit) * 10) / 10;
+  const box = el('input', {
+    type: 'number',
+    inputmode: 'decimal',
+    step: '0.1',
+    min: unit === 'lb' ? '50' : '20',
+    max: unit === 'lb' ? '600' : '275',
+    value: String(shown),
+    class: 'field-control weight-input',
+    'aria-label': `Weight in ${unit}`,
+    onchange: (e) => {
+      const x = Number(e.target.value);
+      if (!Number.isFinite(x) || x <= 0) return;
+      state.todayWeight = weightIn(x, unit);
+      commit();
+    },
+  });
+  return el('div', { class: 'field-row' }, [
+    el('div', { class: 'field-label' }, 'Weight'),
+    el('div', { class: 'weight-field' }, [box, el('span', {}, unit)]),
+  ]);
+}
+
 /** Vitals sub-tab: weight + other daily diagnostics. */
 function renderVitals(container, state) {
   const v = state.todayVitals;
   const commit = () => store.commit(markDraft);
   container.append(el('div', { class: 'section-title' }, "Today's vitals"));
+  const units = getUnits();
   const card = el('div', { class: 'card tight' });
   card.append(
-    sliderRow(
-      'Weight',
-      state.todayWeight,
-      { min: 60, max: 95, step: 0.1, format: (x) => `${x.toFixed(1)} kg` },
-      (x) => {
-        state.todayWeight = x;
-      },
-      commit,
-    ),
+    weightRow(state, units.weight, commit),
     sliderRow(
       'Temperature',
-      v.temperature,
-      { min: 35.5, max: 40, step: 0.1, format: (x) => `${x.toFixed(1)} °C` },
+      Math.round(tempOut(v.temperature, units.temperature) * 10) / 10,
+      units.temperature === 'F'
+        ? { min: 95.9, max: 104, step: 0.1, format: (x) => `${x.toFixed(1)} °F` }
+        : { min: 35.5, max: 40, step: 0.1, format: (x) => `${x.toFixed(1)} °C` },
       (x) => {
-        v.temperature = x;
+        v.temperature = tempIn(x, units.temperature);
       },
       commit,
     ),

@@ -24,7 +24,8 @@ set -euo pipefail
 PROJECT_ID="${PROJECT_ID:?set PROJECT_ID to your Google Cloud project id}"
 REGION="${REGION:-us-east1}"
 SERVICE="${SERVICE:-myelotrack}"
-SQL_INSTANCE="${SQL_INSTANCE:-myelotrack-db}"
+NETWORK="${NETWORK:-myelotrack-vpc}"
+SUBNET="${SUBNET:-myelotrack-run}"
 DOMAIN="${DOMAIN:-}"
 # Set ALLOW_SIGNUP=false after you have created your account(s). Left unset,
 # a redeploy keeps the live service's current value (open on the first deploy).
@@ -65,8 +66,6 @@ fi
 echo "▸ New-account sign-up: ALLOW_SIGNUP=$ALLOW_SIGNUP"
 
 BUCKET="${BUCKET:-${PROJECT_ID}-pallor}"
-CONNECTION_NAME="$(gcloud sql instances describe "$SQL_INSTANCE" \
-  --project="$PROJECT_ID" --format='value(connectionName)')"
 ENV="DATA_BACKEND=postgres,STORAGE_BACKEND=gcs,STORAGE_BUCKET=$BUCKET"
 ENV="$ENV,AUTH_REQUIRED=true,ALLOW_SIGNUP=$ALLOW_SIGNUP,RP_NAME=MyeloTrack"
 
@@ -85,7 +84,7 @@ gcloud run deploy "$SERVICE" \
   --project="$PROJECT_ID" \
   --region="$REGION" \
   $ACCESS \
-  --add-cloudsql-instances="$CONNECTION_NAME" \
+  --network="$NETWORK" --subnet="$SUBNET" --vpc-egress=private-ranges-only \
   --set-env-vars="$ENV" \
   --set-secrets="DATABASE_URL=DATABASE_URL:latest,FIELD_ENCRYPTION_KEY=FIELD_ENCRYPTION_KEY:latest,SESSION_SECRET=SESSION_SECRET:latest" \
   --quiet

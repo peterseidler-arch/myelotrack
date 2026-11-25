@@ -7,6 +7,7 @@ import * as integrations from '../controllers/integrations.js';
 import * as auth from '../controllers/auth.js';
 import * as account from '../controllers/account.js';
 import * as password from '../controllers/password.js';
+import * as reports from '../controllers/reports.js';
 import { requireAuth } from '../middleware/auth.js';
 
 /** Mount the v1 API surface (see docs/architecture.md). */
@@ -33,7 +34,17 @@ export function apiRouter() {
   r.post('/symptoms', symptoms.create);
 
   r.get('/medications', medications.list);
+  r.post('/medications', medications.create);
+  r.post('/medications/import', medications.importList);
+  r.get('/medications/doses', medications.listDoses);
+  r.get('/medications/history', medications.history);
+  r.put('/medications/:id/doses', medications.putDose);
+  r.delete('/medications/:id/doses', medications.clearDose);
+  r.patch('/medications/:id', medications.update);
   r.post('/medications/:id/doses', medications.logDose);
+
+  r.get('/reports', reports.list);
+  r.post('/reports', reports.create);
 
   r.get('/labs/analytes', labs.analytes);
   r.get('/labs', labs.list);

@@ -3,6 +3,21 @@ import { store } from '../state/store.js';
 import { prettyTime } from '../lib/format.js';
 import { makeDoseCheck } from '../ui/dose-check.js';
 import { todaysDoses, todaysAdherence } from '../data/meds.js';
+import { openMedSheet } from '../ui/med-edit.js';
+import { openMedImportSheet } from '../ui/med-import.js';
+import { openTrialDiary } from '../ui/trial-diary.js';
+import { openVisitReport } from '../ui/visit-report.js';
+
+/** One line describing when a medication is taken. */
+function whenText(med) {
+  const parts = [];
+  if (med.times.length) {
+    parts.push(`${med.times.length}×/day · ${med.times.map(prettyTime).join(', ')}`);
+  }
+  if (med.asNeeded) parts.push('as needed');
+  if (!parts.length) parts.push(med.instructions || 'No set times');
+  return parts.join(' · ');
+}
 
 /** Render the Meds tab: today's progress, scheduled doses, and full regimen. */
 export function renderMeds(container) {
@@ -48,11 +63,10 @@ export function renderMeds(container) {
         el('div', { class: 'row' }, [
           makeDoseCheck(dose),
           el('div', { class: 'grow' }, [
-            el(
-              'div',
-              { class: 'title' },
+            el('div', { class: 'title' }, [
               `${dose.med.name}${dose.med.brand ? ` · ${dose.med.brand}` : ''}`,
-            ),
+              dose.med.trial ? el('span', { class: 'trial-pill' }, 'Trial') : null,
+            ]),
             el('div', { class: 'sub' }, `${dose.med.dose} — ${dose.med.purpose}`),
           ]),
         ]),
@@ -61,23 +75,97 @@ export function renderMeds(container) {
     container.append(card);
   }
 
-  // --- Full regimen ---
+  // --- Full regimen: tap a medication to edit or stop it ---
   container.append(el('div', { class: 'section-title' }, 'Regimen'));
-  const regimen = el('div', { class: 'card tight' });
-  for (const med of state.medications) {
-    regimen.append(
-      el('div', { class: 'row' }, [
-        el('div', { class: 'grow' }, [
-          el('div', { class: 'title' }, `${med.name} ${med.dose}`),
-          el(
-            'div',
-            { class: 'sub' },
-            `${med.times.length}×/day · ${med.times.map(prettyTime).join(', ')}`,
-          ),
-        ]),
-        el('span', { class: 'chevron' }, '›'),
-      ]),
+  container.append(
+    el('div', { class: 'med-actions' }, [
+      el('button', { class: 'btn secondary', onclick: () => openMedSheet() }, '+ Add'),
+      el(
+        'button',
+        { class: 'btn secondary', onclick: openMedImportSheet },
+        'Import list (PDF)',
+      ),
+    ]),
+  );
+  if (!state.medications.length) {
+    container.append(
+      el(
+        'div',
+        { class: 'empty' },
+        'No medications yet. Add them one at a time, or import a PDF of your medication list.',
+      ),
     );
+    return;
   }
+  // Clinical-trial drugs first, in their own highlighted group per trial.
+  const trials = new Map();
+  const others = [];
+  for (const med of state.medications) {
+    if (med.trial) {
+      const key = med.trial.name || 'Clinical trial';
+      if (!trials.has(key)) trials.set(key, []);
+      trials.get(key).push(med);
+    } else {
+      others.push(med);
+    }
+  }
+  for (const [name, meds] of trials) {
+    const cycle = meds.find((m) => m.trial.cycleDays)?.trial.cycleDays;
+    const card = el('div', { class: 'card tight trial-card' }, [
+      el('div', { class: 'trial-head' }, [
+        el('span', { class: 'trial-pill' }, 'Clinical trial'),
+        el('span', { class: 'trial-name' }, name),
+        cycle ? el('span', { class: 'trial-cycle' }, `${cycle}-day cycles`) : null,
+      ]),
+      el('div', { class: 'trial-actions' }, [
+        el(
+          'button',
+          { class: 'btn small secondary', onclick: () => openTrialDiary(name) },
+          'Dose diary',
+        ),
+        el(
+          'button',
+          { class: 'btn small secondary', onclick: openVisitReport },
+          'Visit report',
+        ),
+      ]),
+    ]);
+    for (const med of meds) card.append(regimenRow(med));
+    container.append(card);
+  }
+  if (!others.length) return;
+  const regimen = el('div', { class: 'card tight' });
+  for (const med of others) regimen.append(regimenRow(med));
   container.append(regimen);
+}
+
+/** One tappable regimen row (opens edit / stop). */
+function regimenRow(med) {
+  return el(
+    'button',
+    {
+      class: 'row row-button',
+      type: 'button',
+      onclick: () => openMedSheet(med),
+      'aria-label': `Edit ${med.name}`,
+    },
+    [
+      el('div', { class: 'grow' }, [
+        el(
+          'div',
+          { class: 'title' },
+          `${med.name}${med.brand ? ` · ${med.brand}` : ''} ${med.dose}`,
+        ),
+        el('div', { class: 'sub' }, whenText(med)),
+        med.prescriber || med.purpose
+          ? el(
+              'div',
+              { class: 'sub' },
+              [med.purpose, med.prescriber].filter(Boolean).join(' · '),
+            )
+          : null,
+      ]),
+      el('span', { class: 'chevron' }, '›'),
+    ],
+  );
 }

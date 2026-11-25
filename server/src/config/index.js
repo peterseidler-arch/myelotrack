@@ -30,8 +30,8 @@ export const config = {
   // hosts the client separately.
   webDir: process.env.WEB_DIR || '',
   dataBackend: process.env.DATA_BACKEND || 'memory',
-  // Postgres connection string (DATA_BACKEND=postgres). On Cloud Run with the
-  // Cloud SQL connector: postgresql://USER:PASS@/DB?host=/cloudsql/PROJECT:REGION:INSTANCE
+  // Postgres connection string (DATA_BACKEND=postgres). In production this is
+  // Cloud SQL's private IP over the VPC, TLS on (see scripts/setup-gcp.sh).
   databaseUrl: process.env.DATABASE_URL || '',
   isProduction: process.env.NODE_ENV === 'production',
   corsOrigins: (process.env.CORS_ORIGINS || 'http://localhost:5173')

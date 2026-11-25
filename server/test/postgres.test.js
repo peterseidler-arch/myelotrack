@@ -86,6 +86,51 @@ if (!url) {
     }
   });
 
+  test('[postgres] every PHI table has forced row-level security after migrations', async () => {
+    const repo = await freshRepo();
+    const { rows } = await repo.pool.query(
+      `SELECT c.relname, c.relrowsecurity, c.relforcerowsecurity
+       FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
+       WHERE n.nspname = current_schema() AND c.relkind = 'r'
+         AND c.relname = ANY($1)`,
+      [
+        [
+          'symptom_entries',
+          'medications',
+          'dose_logs',
+          'lab_results',
+          'pallor_photos',
+          'integration_connections',
+          'visit_reports',
+        ],
+      ],
+    );
+    assert.equal(rows.length, 7);
+    for (const r of rows) {
+      assert.ok(r.relrowsecurity && r.relforcerowsecurity, `${r.relname} RLS not forced`);
+    }
+  });
+
+  test('[postgres] RLS also isolates visit reports', async () => {
+    const repo = await freshRepo();
+    const a = (await repo.createUser())._id;
+    const b = (await repo.createUser())._id;
+    await repo.forUser(a).createReport({
+      periodStart: new Date('2026-01-01'),
+      periodEnd: new Date('2026-01-15'),
+      recipients: [{ name: 'Dr. Example', email: 'dr@example.org' }],
+    });
+    const client = await repo.pool.connect();
+    try {
+      await client.query('BEGIN');
+      await client.query("SELECT set_config('app.user_id', $1, true)", [b]);
+      assert.equal((await client.query('SELECT * FROM visit_reports')).rowCount, 0);
+      await client.query('ROLLBACK');
+    } finally {
+      client.release();
+    }
+  });
+
   test('[postgres] the audit log rejects updates and deletes', async () => {
     const repo = await freshRepo();
     await repo.recordAudit({

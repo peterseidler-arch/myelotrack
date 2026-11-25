@@ -323,12 +323,13 @@ function createPatientScope(userId, asPatient) {
             m.provenance?.externalId ?? null,
             m.startedAt ?? null,
             m.stoppedAt ?? null,
+            m.trial ? json(m.trial) : null,
           ];
           await c.query(
             `INSERT INTO medications (user_id, name, brand, dose, form, purpose, rxnorm,
                schedule, prescriber, active, source, provenance, external_id,
-               started_at, stopped_at)
-             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)
+               started_at, stopped_at, trial)
+             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)
              ON CONFLICT (user_id, external_id) WHERE external_id IS NOT NULL
              DO UPDATE SET name = EXCLUDED.name, brand = EXCLUDED.brand,
                dose = EXCLUDED.dose, form = EXCLUDED.form, purpose = EXCLUDED.purpose,
@@ -336,11 +337,79 @@ function createPatientScope(userId, asPatient) {
                prescriber = EXCLUDED.prescriber, active = EXCLUDED.active,
                source = EXCLUDED.source, provenance = EXCLUDED.provenance,
                started_at = EXCLUDED.started_at, stopped_at = EXCLUDED.stopped_at,
-               updated_at = now()`,
+               trial = EXCLUDED.trial, updated_at = now()`,
             params,
           );
         }
         return meds.length;
+      });
+    },
+    /** Add one medication (patient-entered). Returns the stored record. */
+    createMedication(m) {
+      return tx(async (c) => {
+        const { rows } = await c.query(
+          `INSERT INTO medications (user_id, name, brand, dose, form, purpose, schedule,
+             prescriber, active, source, provenance, external_id, started_at, trial)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14) RETURNING *`,
+          [
+            userId,
+            m.name,
+            m.brand || '',
+            m.dose || '',
+            m.form ?? null,
+            m.purpose || '',
+            json(m.schedule || {}),
+            m.prescriber ? json(m.prescriber) : null,
+            m.active ?? true,
+            m.source ?? null,
+            m.provenance ? json(m.provenance) : null,
+            m.provenance?.externalId ?? null,
+            m.startedAt ?? null,
+            m.trial ? json(m.trial) : null,
+          ],
+        );
+        return mapMedication(rows[0]);
+      });
+    },
+    /** Patch one medication (active or stopped). Returns it, or null if unknown. */
+    updateMedication(id, patch) {
+      const cols = {
+        name: 'name',
+        brand: 'brand',
+        dose: 'dose',
+        purpose: 'purpose',
+        schedule: 'schedule',
+        prescriber: 'prescriber',
+        active: 'active',
+        stoppedAt: 'stopped_at',
+        provenance: 'provenance',
+        trial: 'trial',
+      };
+      const sets = [];
+      const params = [userId, id];
+      for (const [key, col] of Object.entries(cols)) {
+        if (!(key in patch)) continue;
+        let v = patch[key];
+        if (['schedule', 'provenance', 'prescriber', 'trial'].includes(key)) {
+          v = v == null ? null : json(v);
+        }
+        params.push(v);
+        sets.push(`${col} = $${params.length}`);
+      }
+      return tx(async (c) => {
+        if (!sets.length) {
+          const { rows } = await c.query(
+            'SELECT * FROM medications WHERE user_id = $1 AND id = $2',
+            [userId, id],
+          );
+          return rows[0] ? mapMedication(rows[0]) : null;
+        }
+        const { rows } = await c.query(
+          `UPDATE medications SET ${sets.join(', ')}, updated_at = now()
+           WHERE user_id = $1 AND id = $2 RETURNING *`,
+          params,
+        );
+        return rows[0] ? mapMedication(rows[0]) : null;
       });
     },
     logDose(medicationId, { status, scheduledFor, takenAt, note } = {}) {
@@ -353,7 +422,11 @@ function createPatientScope(userId, asPatient) {
         const s = status || 'taken';
         const { rows } = await c.query(
           `INSERT INTO dose_logs (user_id, medication_id, scheduled_for, status, taken_at, note)
-           VALUES ($1, $2, $3, $4, $5, $6) RETURNING *`,
+           VALUES ($1, $2, $3, $4, $5, $6)
+           ON CONFLICT (user_id, medication_id, scheduled_for) DO UPDATE
+             SET status = EXCLUDED.status, taken_at = EXCLUDED.taken_at,
+                 note = EXCLUDED.note, updated_at = now()
+           RETURNING *`,
           [
             userId,
             medicationId,
@@ -366,13 +439,97 @@ function createPatientScope(userId, asPatient) {
         return mapDose(rows[0]);
       });
     },
-    listDoseLogs() {
+    listDoseLogs({ from, to } = {}) {
       return tx(async (c) => {
         const { rows } = await c.query(
-          'SELECT * FROM dose_logs WHERE user_id = $1 ORDER BY scheduled_for DESC',
-          [userId],
+          `SELECT * FROM dose_logs
+           WHERE user_id = $1
+             AND ($2::timestamptz IS NULL OR scheduled_for >= $2)
+             AND ($3::timestamptz IS NULL OR scheduled_for <= $3)
+           ORDER BY scheduled_for DESC`,
+          [userId, from || null, to || null],
         );
         return rows.map(mapDose);
+      });
+    },
+    /** Every medication, including stopped ones (for change history). */
+    listAllMedications() {
+      return tx(async (c) => {
+        const { rows } = await c.query(
+          'SELECT * FROM medications WHERE user_id = $1 ORDER BY created_at, id',
+          [userId],
+        );
+        return rows.map(mapMedication);
+      });
+    },
+    /**
+     * Create or replace the record for one scheduled dose (medication +
+     * scheduled time). Returns null for an unknown medication.
+     */
+    upsertDose(medicationId, { scheduledFor, status, takenAt, note, amount } = {}) {
+      return tx(async (c) => {
+        const med = await c.query(
+          'SELECT 1 FROM medications WHERE user_id = $1 AND id = $2',
+          [userId, medicationId],
+        );
+        if (!med.rowCount) return null;
+        const s = status || 'taken';
+        const { rows } = await c.query(
+          `INSERT INTO dose_logs (user_id, medication_id, scheduled_for, status, taken_at, note, amount)
+           VALUES ($1, $2, $3, $4, $5, $6, $7)
+           ON CONFLICT (user_id, medication_id, scheduled_for) DO UPDATE
+             SET status = EXCLUDED.status, taken_at = EXCLUDED.taken_at,
+                 note = EXCLUDED.note, amount = EXCLUDED.amount, updated_at = now()
+           RETURNING *`,
+          [
+            userId,
+            medicationId,
+            new Date(scheduledFor),
+            s,
+            s === 'taken' || s === 'late' ? new Date(takenAt || Date.now()) : null,
+            note || '',
+            amount == null ? null : json(amount),
+          ],
+        );
+        return mapDose(rows[0]);
+      });
+    },
+    /** Remove one scheduled dose's record. Returns whether one existed. */
+    clearDose(medicationId, scheduledFor) {
+      return tx(async (c) => {
+        const r = await c.query(
+          `DELETE FROM dose_logs
+           WHERE user_id = $1 AND medication_id = $2 AND scheduled_for = $3`,
+          [userId, medicationId, new Date(scheduledFor)],
+        );
+        return r.rowCount > 0;
+      });
+    },
+
+    // --- Visit reports ---
+    listReports() {
+      return tx(async (c) => {
+        const { rows } = await c.query(
+          'SELECT * FROM visit_reports WHERE user_id = $1 ORDER BY period_end DESC',
+          [userId],
+        );
+        return rows.map(mapReport);
+      });
+    },
+    createReport({ periodStart, periodEnd, recipients = [], summary = null }) {
+      return tx(async (c) => {
+        const { rows } = await c.query(
+          `INSERT INTO visit_reports (user_id, period_start, period_end, recipients, summary)
+           VALUES ($1, $2, $3, $4, $5) RETURNING *`,
+          [
+            userId,
+            new Date(periodStart),
+            new Date(periodEnd),
+            json(recipients),
+            summary == null ? null : json(summary),
+          ],
+        );
+        return mapReport(rows[0]);
       });
     },
 
@@ -538,7 +695,7 @@ function createPatientScope(userId, asPatient) {
 
     // --- Account: export & erasure ---
     async exportData() {
-      const [symptoms, medications, doseLogs, labResults, pallor, conns] =
+      const [symptoms, medications, doseLogs, labResults, pallor, visitReports, conns] =
         await Promise.all([
           this.listSymptoms(),
           tx(async (c) =>
@@ -552,6 +709,7 @@ function createPatientScope(userId, asPatient) {
           this.listDoseLogs(),
           this.listLabs(),
           this.listPallor(),
+          this.listReports(),
           tx(
             async (c) =>
               (
@@ -568,6 +726,7 @@ function createPatientScope(userId, asPatient) {
         doseLogs,
         labResults,
         pallor,
+        visitReports,
         integrations: conns.map((r) => ({
           source: r.source,
           system: r.system,
@@ -584,6 +743,7 @@ function createPatientScope(userId, asPatient) {
         const del = async (table) =>
           (await c.query(`DELETE FROM ${table} WHERE user_id = $1`, [userId])).rowCount;
         const doseLogs = await del('dose_logs');
+        const visitReports = await del('visit_reports');
         return {
           symptoms: await del('symptom_entries'),
           medications: await del('medications'),
@@ -591,6 +751,7 @@ function createPatientScope(userId, asPatient) {
           labResults: await del('lab_results'),
           pallor: await del('pallor_photos'),
           integrations: await del('integration_connections'),
+          visitReports,
         };
       });
     },
@@ -695,6 +856,9 @@ function mapMedication(r) {
   if (r.provenance != null) m.provenance = r.provenance;
   if (r.started_at != null) m.startedAt = r.started_at;
   if (r.stopped_at != null) m.stoppedAt = r.stopped_at;
+  m.trial = r.trial ?? null;
+  m.createdAt = r.created_at;
+  m.updatedAt = r.updated_at;
   return m;
 }
 function mapDose(r) {
@@ -705,6 +869,17 @@ function mapDose(r) {
     scheduledFor: r.scheduled_for,
     takenAt: r.taken_at,
     note: r.note,
+    amount: r.amount ?? null,
+  };
+}
+function mapReport(r) {
+  return {
+    _id: r.id,
+    periodStart: r.period_start,
+    periodEnd: r.period_end,
+    sentAt: r.sent_at,
+    recipients: r.recipients || [],
+    summary: r.summary ?? null,
   };
 }
 function mapLab(r) {

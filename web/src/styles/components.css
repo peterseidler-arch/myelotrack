@@ -936,3 +936,246 @@ svg.spark {
   min-height: 18px;
   margin-top: 12px;
 }
+
+/* Meds: add / import / edit */
+.med-actions {
+  display: flex;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+.med-actions .btn {
+  padding: 11px;
+  font-size: 15px;
+}
+.row-button {
+  width: 100%;
+  background: none;
+  border: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.med-form {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.med-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.med-field > span {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--label-2);
+  padding: 0 4px;
+}
+.med-form .auth-input,
+.med-times-input {
+  font-size: 16px;
+  padding: 11px 14px;
+}
+.med-times {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  align-items: flex-start;
+}
+.med-time-row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+.med-time {
+  width: 140px;
+}
+.med-option {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  font-size: 14px;
+  color: var(--label-2);
+  line-height: 1.4;
+}
+.med-option span {
+  flex: 1;
+  min-width: 0;
+}
+.med-option input {
+  margin-top: 3px;
+  width: 18px;
+  height: 18px;
+  flex: none;
+}
+.med-form .err {
+  color: var(--red);
+  font-size: 13px;
+}
+.med-review-row {
+  align-items: flex-start;
+}
+.med-review-row input[type='checkbox'] {
+  width: 20px;
+  height: 20px;
+  margin-top: 2px;
+  flex: none;
+}
+.med-times-input {
+  margin-top: 8px;
+  width: 100%;
+}
+.med-times-input.invalid {
+  outline: 2px solid var(--red);
+}
+
+/* Weight: typed number + unit */
+.weight-field {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--label-2);
+}
+.weight-input {
+  min-width: 0;
+  width: 110px;
+  text-align: right;
+}
+
+/* Clinical-trial drugs */
+.trial-pill {
+  display: inline-block;
+  margin-left: 8px;
+  padding: 2px 8px;
+  border-radius: 100px;
+  background: var(--purple);
+  color: #fff;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  vertical-align: 2px;
+}
+.trial-card {
+  border: 2px solid var(--purple);
+  margin-bottom: 14px;
+}
+.trial-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 0 4px;
+}
+.trial-head .trial-pill {
+  margin-left: 0;
+}
+.trial-name {
+  font-weight: 700;
+  font-size: 15px;
+}
+.trial-cycle {
+  font-size: 13px;
+  color: var(--label-2);
+}
+.med-trial-fields {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.med-trial-fields[hidden] {
+  display: none;
+}
+
+/* Trial diary */
+.trial-actions {
+  display: flex;
+  gap: 8px;
+  padding: 6px 0 10px;
+}
+.diary-nav {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+.diary-when {
+  text-align: center;
+}
+.diary-slot {
+  margin-bottom: 12px;
+}
+.diary-slot-head {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--label-2);
+  padding: 12px 0 4px;
+}
+.diary-row {
+  padding: 10px 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.diary-row + .diary-row {
+  border-top: 0.5px solid var(--hairline);
+}
+.diary-seg {
+  max-width: 260px;
+}
+.diary-details {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  align-items: center;
+}
+.diary-details[hidden] {
+  display: none;
+}
+.diary-inline {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 14px;
+  color: var(--label-2);
+}
+.diary-time {
+  width: 130px;
+  padding: 8px 10px;
+  font-size: 16px;
+}
+.diary-tabs {
+  width: 70px;
+  padding: 8px 10px;
+  font-size: 16px;
+}
+.diary-mg {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--label);
+}
+.diary-cycles {
+  margin: 8px 4px 16px;
+}
+.diary-cycles summary {
+  font-weight: 600;
+  cursor: pointer;
+  padding: 8px 0;
+}
+
+/* Visit report */
+.report-recipient {
+  display: grid;
+  grid-template-columns: 1fr 1.4fr;
+  gap: 8px;
+}
+.report-notes {
+  resize: vertical;
+  min-height: 90px;
+  font: inherit;
+  font-size: 16px;
+}
+.report-preview {
+  margin-bottom: 12px;
+}

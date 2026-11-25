@@ -73,14 +73,24 @@ PROJECT_ID=<your-project> REGION=us-east1 bash scripts/deploy.sh
 `setup-gcp.sh` is safe to re-run. It:
 
 1. Enables Cloud Run, Cloud Build, Artifact Registry, Secret Manager, Cloud
-   Storage and Cloud SQL Admin.
+   Storage, Cloud SQL Admin, Compute Engine and Service Networking.
 2. Creates the pallor bucket and grants the runtime service account access.
-3. Creates a Cloud SQL for PostgreSQL 16 instance (`myelotrack-db`, daily
-   backups, point-in-time recovery, deletion protection), the `myelotrack`
-   database, and an app user `myelotrack_app` with a generated password.
-4. Stores `DATABASE_URL` (Cloud SQL socket form), `FIELD_ENCRYPTION_KEY` and
+3. Creates a private network: VPC `myelotrack-vpc`, a subnet
+   `myelotrack-run` for Cloud Run's Direct VPC egress, and a private services
+   access range peered to Google's service network.
+4. Creates a Cloud SQL for PostgreSQL 16 instance (`myelotrack-db`) with a
+   **private IP only**: no public IP, TLS required, daily backups,
+   point-in-time recovery, deletion protection. Then the `myelotrack`
+   database and an app user `myelotrack_app` with a generated password.
+5. Stores `DATABASE_URL` (the private IP, TLS on), `FIELD_ENCRYPTION_KEY` and
    `SESSION_SECRET` in Secret Manager, and grants the runtime service account
-   `cloudsql.client` and `secretmanager.secretAccessor`.
+   `secretmanager.secretAccessor`.
+
+Why private IP: health data never needs a database reachable from the
+internet, and new projects often enforce the `sql.restrictPublicIp` org
+policy, which rejects a public IP outright. Cloud Run reaches the database
+through Direct VPC egress (`--vpc-egress=private-ranges-only`), so its other
+outbound traffic, such as calls to Epic, still goes straight out.
 
 `deploy.sh` builds from the Dockerfile and deploys with sign-in always on. On
 the very first deploy it deploys privately, reads the new `*.run.app` URL,
